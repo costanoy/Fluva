@@ -16,7 +16,10 @@
       "Bash(node ./_make-test-files.mjs \"C:/Users/VINICI~1/AppData/Local/Temp/claude/C--Users-Vinicius-Costa-Desktop-Fluva/1f008d7d-2801-421b-a241-d7af9ee98e50/scratchpad/testfiles\")",
       "Bash(cd \"C:\\\\Users\\\\Vinicius Costa\\\\Desktop\\\\Fluva\" && mkdir -p public/__test__ && cp \"C:/Users/VINICI~1/AppData/Local/Temp/claude/C--Users-Vinicius-Costa-Desktop-Fluva/1f008d7d-2801-421b-a241-d7af9ee98e50/scratchpad/testfiles/\"* public/__test__/ && ls public/__test__/)",
       "Bash(rm -rf public/__test__)",
-      "Bash(rmdir public *)"
+      "Bash(rmdir public *)",
+      "Bash(npm ls *)",
+      "Bash(find \"C:/Users/Vinicius Costa/Desktop\" \"C:/Users/Vinicius Costa/Downloads\" -iname \"*MTCNA*\" 2>/dev/null)",
+      "Bash(cd \"C:\\\\Users\\\\Vinicius Costa\\\\Desktop\\\\Fluva\" && mkdir -p public/__test__ && cp \"C:/Users/Vinicius Costa/Downloads/MTCNA.pdf\" public/__test__/ && ls -la public/__test__/ && head -c 2000 public/__test__/MTCNA.pdf | strings | head -40)"
     ]
   }
 }

@@ -61,8 +61,12 @@ async function loadPdfFile(file: File, bytes: Uint8Array): Promise<LoadedFile> {
   let opened;
   try {
     opened = await openWithPdfJs(bytes);
-  } catch {
-    throw new Error(`Não foi possível abrir "${file.name}". O arquivo pode estar corrompido ou protegido por senha.`);
+  } catch (e) {
+    // Logged so the real cause is visible in DevTools — the message shown to the
+    // user is a guess, and a wrong guess is worse than no guess at all.
+    console.error(`[Fluva] pdf.js failed to open "${file.name}":`, e);
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`Não foi possível abrir "${file.name}": ${detail}`);
   }
   const pdf = opened.doc;
 

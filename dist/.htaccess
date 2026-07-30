@@ -1,0 +1,17 @@
+# pdf.js loads its worker as an ES module (`new Worker(url, { type: "module" })`),
+# and browsers refuse to execute a module script unless the server declares it
+# with a JavaScript MIME type. Many Apache/LiteSpeed configs (Hostinger's shared
+# hosting included) don't map .mjs by default and fall back to
+# application/octet-stream, which silently breaks every PDF the app tries to open.
+<IfModule mod_mime.c>
+  AddType text/javascript .mjs
+  AddType application/wasm .wasm
+</IfModule>
+
+# Vite fingerprints filenames, so assets are safe to cache aggressively.
+<IfModule mod_expires.c>
+  ExpiresActive On
+  <FilesMatch "\.(js|mjs|css|woff2?)$">
+    ExpiresDefault "access plus 1 year"
+  </FilesMatch>
+</IfModule>
