@@ -1,0 +1,58 @@
+:root {
+  --color-bg: #E8E8E4;
+  --color-surface: #E0E0DB;
+  --color-text: #2C2C2A;
+  --color-divider: rgba(44, 44, 42, 0.14);
+
+  --color-neutral-100: #F5F5F3;
+  --color-neutral-200: #EBEBE7;
+  --color-neutral-300: #D8D8D3;
+  --color-neutral-400: #B8B8B1;
+  --color-neutral-500: #94948C;
+  --color-neutral-600: #6E6E67;
+  --color-neutral-700: #4E4E48;
+  --color-neutral-800: #383834;
+  --color-neutral-900: #2C2C2A;
+
+  --color-accent: #1D9E75;
+  --color-accent-100: #d0f0e2;
+  --color-accent-200: #a8e0c8;
+  --color-accent-300: #86d1b3;
+  --color-accent-400: #5cc9a8;
+  --color-accent-500: #1D9E75;
+  --color-accent-600: #178562;
+  --color-accent-700: #0F6E56;
+  --color-accent-800: #0b5443;
+  --color-accent-900: #073c31;
+
+  --color-accent-2: #1D9E75;
+  --color-accent-2-100: #d0f0e2;
+  --color-accent-2-200: #a8e0c8;
+  --color-accent-2-300: #86d1b3;
+  --color-accent-2-400: #5cc9a8;
+  --color-accent-2-500: #1D9E75;
+  --color-accent-2-600: #178562;
+  --color-accent-2-700: #0F6E56;
+  --color-accent-2-800: #0b5443;
+  --color-accent-2-900: #073c31;
+
+  --font-heading: 'Caprasimo', cursive;
+  --font-body: 'Figtree', sans-serif;
+  --font-mono: 'Cousine', monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 2px rgba(44, 44, 42, .06), 0 1px 3px rgba(44, 44, 42, .08);
+  --shadow-md: 0 4px 12px rgba(44, 44, 42, .10);
+  --shadow-lg: 0 12px 32px rgba(44, 44, 42, .18);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+}
