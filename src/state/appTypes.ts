@@ -106,8 +106,6 @@ export interface AppState {
   splitMergeSelected: boolean;
   compressLevel: CompressLevel;
   compressOutcome: CompressOutcome | null;
-  reorderFrom: string;
-  reorderTo: string;
   busy: BusyState | null;
   toast: string | null;
   error: string | null;

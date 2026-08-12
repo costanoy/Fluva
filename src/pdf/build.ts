@@ -114,10 +114,20 @@ export async function buildPdf(doc: DocumentState): Promise<Uint8Array> {
 function withWatermark(doc: DocumentState, page: WorkPage): Overlay[] {
   const wm = doc.watermark;
   if (!wm.enabled) return page.overlays;
-  const isFirst = doc.pages[0]?.id === page.id;
-  if (!wm.allPages && !isFirst) return page.overlays;
+  // Falls back to the first page if the stored index ever falls outside the
+  // current page count (e.g. pages were deleted since it was set).
+  const targetPage = doc.pages[wm.singlePageIndex] ?? doc.pages[0];
+  const isTarget = targetPage?.id === page.id;
+  if (!wm.allPages && !isTarget) return page.overlays;
   const built = buildWatermarkOverlay(wm, page, doc.assets);
-  return built ? [...page.overlays, built] : page.overlays;
+  if (!built) return page.overlays;
+  // Covers exist only to blank out stale original PDF text, not to block the
+  // watermark — inserting it right after them (matching the preview) lets it
+  // show straight through instead of leaving a plain white rectangle over it,
+  // while still sitting below the actual replacement content drawn on top.
+  const covers = page.overlays.filter((o) => o.kind === 'cover');
+  const rest = page.overlays.filter((o) => o.kind !== 'cover');
+  return [...covers, built, ...rest];
 }
 
 export function buildWatermarkOverlay(

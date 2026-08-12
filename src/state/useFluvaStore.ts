@@ -61,8 +61,6 @@ const initialState: AppState = {
   splitMergeSelected: false,
   compressLevel: 'medium',
   compressOutcome: null,
-  reorderFrom: '',
-  reorderTo: '',
   busy: null,
   toast: null,
   error: null,
@@ -333,6 +331,9 @@ export function useFluvaStore() {
       clearError: () => set({ error: null }),
 
       /** Loads every queued file: the first becomes the working document, the rest stay available to merge. */
+      /** Loads every queued file into one document — when more than one was
+       * picked together, their pages are already joined end to end, rather
+       * than opening just the first and leaving the rest to merge by hand. */
       openQueue: async () => {
         const queue = stateRef.current.queue;
         if (!queue.length) return;
@@ -340,7 +341,6 @@ export function useFluvaStore() {
           const sources: Record<string, SourceDoc> = {};
           const assets: Record<string, ImageAsset> = {};
           let pages: WorkPage[] = [];
-          const spare: string[] = [];
           let name = '';
           let kind: 'pdf' | 'image' = 'pdf';
 
@@ -348,12 +348,10 @@ export function useFluvaStore() {
             const loaded = await loadFile(queue[i].file);
             sources[loaded.source.id] = loaded.source;
             if (loaded.asset) assets[loaded.asset.id] = loaded.asset;
+            pages = pages.concat(loaded.pages);
             if (i === 0) {
-              pages = loaded.pages;
               name = loaded.source.name;
               kind = loaded.source.kind;
-            } else {
-              spare.push(loaded.source.id);
             }
             progress(i + 1, queue.length);
           }
@@ -361,8 +359,9 @@ export function useFluvaStore() {
           set({
             screen: 'editing',
             doc: { sources, assets, pages, watermark: defaultWatermark(), name, kind },
-            spareSourceIds: spare,
+            spareSourceIds: [],
             queue: [],
+            toast: queue.length > 1 ? `${queue.length} arquivos juntados em um único documento.` : null,
             activePageIndex: 0,
             toolMode: null,
             selectedOverlayId: null,
@@ -741,11 +740,6 @@ export function useFluvaStore() {
         });
       },
 
-      clearWatermarkImage: () =>
-        mutate((st) => ({
-          doc: { ...st.doc, watermark: { ...st.doc.watermark, source: { kind: 'text', text: 'AMOSTRA' } } },
-        })),
-
       /* ---------------------------------------------------------------- tools */
 
       setTool: (toolMode: AppState['toolMode']) =>
@@ -932,23 +926,6 @@ export function useFluvaStore() {
         if (!outcome) return;
         downloadBytes(outcome.bytes, `${baseNameFor(stateRef.current.doc)}_comprimido.pdf`, 'application/pdf');
       },
-
-      setReorderFrom: (v: string) => set({ reorderFrom: v }),
-      setReorderTo: (v: string) => set({ reorderTo: v }),
-
-      confirmReorder: () =>
-        mutate((st) => {
-          const from = parseInt(st.reorderFrom, 10);
-          const to = parseInt(st.reorderTo, 10);
-          if (Number.isNaN(from) || Number.isNaN(to)) return null;
-          const fromIdx = Math.max(1, Math.min(st.doc.pages.length, from)) - 1;
-          const toIdx = Math.max(1, Math.min(st.doc.pages.length, to)) - 1;
-          if (fromIdx === toIdx) return null;
-          const pages = st.doc.pages.slice();
-          const [moved] = pages.splice(fromIdx, 1);
-          pages.splice(toIdx, 0, moved);
-          return { doc: { ...st.doc, pages }, activePageIndex: toIdx, reorderTo: '' };
-        }),
 
       /* --------------------------------------------------------------- export */
 

@@ -85,6 +85,10 @@ function screenDeltaToPage(dxScreen: number, dyScreen: number, rotationDeg: numb
 
 interface OverlayLayerProps {
   page: WorkPage;
+  /** Defaults to `page.overlays` — callers pass a filtered subset to split
+   * rendering into layers (see EditorCanvas.tsx, which paints 'cover'
+   * overlays in one pass below the watermark and everything else above it). */
+  overlays?: Overlay[];
   assets: Record<string, ImageAsset>;
   scale: number;
   selectedId: string | null;
@@ -95,10 +99,10 @@ interface OverlayLayerProps {
   interactive: boolean;
 }
 
-export function OverlayLayer({ page, assets, scale, selectedId, onSelect, onLiveChange, onCommit, interactive }: OverlayLayerProps) {
+export function OverlayLayer({ page, overlays, assets, scale, selectedId, onSelect, onLiveChange, onCommit, interactive }: OverlayLayerProps) {
   return (
     <>
-      {page.overlays.map((overlay) => (
+      {(overlays ?? page.overlays).map((overlay) => (
         <OverlayItem
           key={overlay.id}
           overlay={overlay}

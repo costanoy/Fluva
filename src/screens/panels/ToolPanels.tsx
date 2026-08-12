@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Download, GripVertical, X } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { useApp } from '../../state/AppContext';
@@ -137,6 +137,17 @@ export function WatermarkPanel() {
   const live = (patch: Parameters<typeof actions.updateWatermark>[0]) => actions.updateWatermark(patch, false);
   const commit = (patch: Parameters<typeof actions.updateWatermark>[0]) => actions.updateWatermark(patch, true);
 
+  // "Apenas na página selecionada" tracks whichever page is open right now —
+  // browsing pages while this panel is open (and single-page mode is on) keeps
+  // the target in step, instead of freezing it wherever it happened to be when
+  // the toggle was first flipped.
+  useEffect(() => {
+    if (wm.enabled && !wm.allPages && wm.singlePageIndex !== state.activePageIndex) {
+      live({ singlePageIndex: state.activePageIndex });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.activePageIndex, wm.enabled, wm.allPages]);
+
   return (
     <>
       <h6 style={{ color: 'var(--color-accent-700)' }}>Marca d'água</h6>
@@ -189,17 +200,32 @@ export function WatermarkPanel() {
           ) : (
             <div className="panel-row" style={{ justifyContent: 'space-between' }}>
               <span className="panel-note" style={{ margin: 0 }}>Imagem carregada</span>
-              <Button onClick={actions.clearWatermarkImage}>Trocar por texto</Button>
+              <Button onClick={actions.uploadWatermarkImage} disabled={!!state.busy}>Trocar imagem</Button>
             </div>
           )}
 
-          <Button
-            block
-            style={{ background: wm.allPages ? 'var(--color-accent-100)' : undefined }}
-            onClick={() => commit({ allPages: !wm.allPages })}
-          >
-            {wm.allPages ? 'Em todas as páginas' : 'Somente na primeira página'}
-          </Button>
+          <div className="segmented">
+            <button
+              className="segmented-btn"
+              style={{
+                background: wm.allPages ? 'var(--color-accent)' : 'transparent',
+                color: wm.allPages ? '#FFFFFF' : 'var(--color-text)',
+              }}
+              onClick={() => commit({ allPages: true })}
+            >
+              Em todas as páginas
+            </button>
+            <button
+              className="segmented-btn"
+              style={{
+                background: !wm.allPages ? 'var(--color-accent)' : 'transparent',
+                color: !wm.allPages ? '#FFFFFF' : 'var(--color-text)',
+              }}
+              onClick={() => commit({ allPages: false })}
+            >
+              Apenas na selecionada
+            </button>
+          </div>
 
           <Slider label="Posição horizontal" min={0} max={100} value={wm.x} onLive={(x) => live({ x })} onCommit={(x) => commit({ x })} suffix="%" />
           <Slider label="Posição vertical" min={0} max={100} value={wm.y} onLive={(y) => live({ y })} onCommit={(y) => commit({ y })} suffix="%" />
@@ -250,38 +276,12 @@ function Slider({
 /* --------------------------------------------------------------- organizar */
 
 export function ReorderPanel() {
-  const { state, actions } = useApp();
-  const total = state.doc.pages.length;
-
   return (
     <>
       <h6 style={{ color: 'var(--color-accent-700)' }}>Organizar páginas</h6>
-      <div className="panel-note">Arraste as miniaturas à esquerda para reordenar, ou informe as posições abaixo.</div>
-
-      <div className="panel-row">
-        <span className="panel-unit">página</span>
-        <input
-          type="number"
-          min={1}
-          max={total}
-          value={state.reorderFrom}
-          onChange={(e) => actions.setReorderFrom(e.target.value)}
-          className="number-input"
-        />
-        <span className="panel-unit">para</span>
-        <input
-          type="number"
-          min={1}
-          max={total}
-          value={state.reorderTo}
-          onChange={(e) => actions.setReorderTo(e.target.value)}
-          className="number-input"
-        />
+      <div className="panel-note">
+        Arraste as páginas na área central ou na coluna à esquerda para reordenar o documento.
       </div>
-
-      <Button variant="primary" block onClick={actions.confirmReorder}>
-        Mover página
-      </Button>
     </>
   );
 }

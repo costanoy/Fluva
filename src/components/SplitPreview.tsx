@@ -109,6 +109,12 @@ export function SplitPreview() {
               disabled={!selectable}
               onClick={() => selectable && actions.toggleSplitSelectedPage(pageNumber)}
               style={{
+                // Fixed, independent of the label's own text length — a
+                // longer group name (e.g. picking up " · mesclada" on
+                // selection) would otherwise widen this shrink-to-fit flex
+                // item, visibly growing the thumbnail's box the moment a
+                // page is selected.
+                width: THUMB_MAX + 24,
                 borderColor: group ? group.color : 'var(--color-neutral-300)',
                 background: group ? `color-mix(in srgb, ${group.color} 12%, #FFFFFF)` : '#FFFFFF',
               }}

@@ -120,6 +120,8 @@ export interface WatermarkConfig {
   rotation: number;
   opacity: number;
   allPages: boolean;
+  /** Which page gets the watermark when `allPages` is false. */
+  singlePageIndex: number;
   color: string;
 }
 
@@ -159,6 +161,7 @@ export function defaultWatermark(): WatermarkConfig {
     rotation: -28,
     opacity: 0.35,
     allPages: true,
+    singlePageIndex: 0,
     color: '#94948C',
   };
 }

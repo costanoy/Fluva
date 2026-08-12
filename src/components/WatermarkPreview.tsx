@@ -11,16 +11,16 @@ export function WatermarkPreview({
   watermark,
   assets,
   scale,
-  isFirstPage,
+  isTargetPage,
 }: {
   page: WorkPage;
   watermark: WatermarkConfig;
   assets: Record<string, ImageAsset>;
   scale: number;
-  isFirstPage: boolean;
+  isTargetPage: boolean;
 }) {
   if (!watermark.enabled) return null;
-  if (!watermark.allPages && !isFirstPage) return null;
+  if (!watermark.allPages && !isTargetPage) return null;
 
   const overlay = buildWatermarkOverlay(watermark, page, assets);
   if (!overlay) return null;

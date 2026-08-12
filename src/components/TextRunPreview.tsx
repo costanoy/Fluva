@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, type FormEvent, type KeyboardEvent, type MouseEvent } from 'react';
+import { Move } from 'lucide-react';
 import { TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT } from '../pdf/build';
 import { familyByKey } from '../pdf/fonts';
-import type { WorkPage } from '../pdf/model';
+import type { Rect, WorkPage } from '../pdf/model';
 import { useApp } from '../state/AppContext';
 
 /**
@@ -47,6 +48,12 @@ export function TextRunPreview({ page, scale }: { page: WorkPage; scale: number 
   // Clicking the draft text (to place a caret) shouldn't bubble out to the
   // canvas's "click outside closes the panel" handler.
   const stopClick = (e: MouseEvent) => e.stopPropagation();
+
+  const bounds: Rect = { x: target.x, y: target.y, width: target.width, height: target.height };
+  const handleMove = (e: MouseEvent) => {
+    e.stopPropagation();
+    actions.replaceTextRun(bounds, draft.text, draft.fontKey, draft.size, draft.bold, draft.italic, true);
+  };
 
   const coverX = target.x - 1;
   const coverY = target.y - 1;
@@ -104,6 +111,33 @@ export function TextRunPreview({ page, scale }: { page: WorkPage; scale: number 
           transition: smoothTransition,
         }}
       />
+      <button
+        type="button"
+        onPointerDown={stopClick}
+        onClick={handleMove}
+        title="Mover texto"
+        aria-label="Mover texto"
+        style={{
+          position: 'absolute',
+          left: (coverX + coverW) * scale - 9,
+          top: (page.height - coverY) * scale - 9,
+          width: 20,
+          height: 20,
+          padding: 0,
+          borderRadius: '50%',
+          border: '2px solid #FFFFFF',
+          background: 'var(--color-accent)',
+          color: '#FFFFFF',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'grab',
+          boxShadow: 'var(--shadow-sm)',
+          transition: smoothTransition,
+        }}
+      >
+        <Move size={11} strokeWidth={2.75} />
+      </button>
     </>
   );
 }

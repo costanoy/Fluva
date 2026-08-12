@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Check, FilePlus2, Plus, X } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { PageView } from '../components/PageView';
@@ -12,6 +12,7 @@ export function ThumbnailRail() {
   const { state, actions } = useApp();
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
+  const frameRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   if (state.toolMode === 'merge') return <MergeSourceList />;
 
@@ -46,6 +47,9 @@ export function ThumbnailRail() {
             style={{ opacity: dragIndex === index ? 0.4 : 1 }}
           >
             <div
+              ref={(el) => {
+                frameRefs.current[index] = el;
+              }}
               className="thumb-frame"
               role="button"
               tabIndex={0}
@@ -57,6 +61,17 @@ export function ThumbnailRail() {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   actions.setActivePage(index);
+                  return;
+                }
+                // With a page focused, the arrow keys browse pages one at a time —
+                // "up" to the previous page, "down" to the next — moving focus
+                // along so repeated presses keep walking the list.
+                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  const next = e.key === 'ArrowUp' ? index - 1 : index + 1;
+                  if (next < 0 || next >= state.doc.pages.length) return;
+                  actions.setActivePage(next);
+                  frameRefs.current[next]?.focus();
                 }
               }}
             >

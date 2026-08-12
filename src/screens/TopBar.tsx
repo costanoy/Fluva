@@ -54,11 +54,11 @@ export function TopBar() {
 
       {isHome && (
         <div className="top-bar-home-actions">
-          <Button onClick={() => actions.setScreen('beta')}>
+          <Button variant="primary" onClick={() => actions.setScreen('beta')}>
             <FlaskConical size={15} strokeWidth={2.75} />
             Teste o nosso app
           </Button>
-          <Button onClick={() => setDonateOpen(true)}>
+          <Button variant="primary" onClick={() => setDonateOpen(true)}>
             <Heart size={15} strokeWidth={2.75} />
             Doe para o Fluva
           </Button>

@@ -6,6 +6,7 @@ import { WatermarkPreview } from '../components/WatermarkPreview';
 import { TextRunLayer } from '../components/TextRunLayer';
 import { TextRunPreview } from '../components/TextRunPreview';
 import { SplitPreview } from '../components/SplitPreview';
+import { ReorderPreview } from '../components/ReorderPreview';
 import { displaySize } from '../pdf/model';
 import '../styles/canvas.css';
 
@@ -73,11 +74,15 @@ export function EditorCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeScale]);
 
-  // The split tool replaces the normal single-page editing view entirely with
-  // a live preview of how the chosen split will come apart — showing the
-  // current page here would just be misleading, since split doesn't touch it.
+  // The split and reorder tools replace the normal single-page editing view
+  // entirely — split with a live preview of how the chosen split will come
+  // apart, reorder with a draggable grid of every page — showing just the
+  // current page here would be misleading for either.
   if (state.toolMode === 'split') {
     return <SplitPreview />;
+  }
+  if (state.toolMode === 'reorder') {
+    return <ReorderPreview />;
   }
 
   if (!page) {
@@ -165,9 +170,31 @@ export function EditorCanvas() {
           scale={safeScale}
           className="doc-page"
         >
-          <WatermarkPreview page={page} watermark={state.doc.watermark} assets={state.doc.assets} scale={safeScale} isFirstPage={state.activePageIndex === 0} />
+          {/* Covers exist only to blank out stale original PDF text, not to
+              block the watermark — painting them below it (and everything
+              else above it) lets the watermark show straight through a
+              cover instead of leaving a plain white rectangle over it. */}
           <OverlayLayer
             page={page}
+            overlays={page.overlays.filter((o) => o.kind === 'cover')}
+            assets={state.doc.assets}
+            scale={safeScale}
+            selectedId={state.selectedOverlayId}
+            onSelect={handleOverlaySelect}
+            onLiveChange={(id, patch) => actions.updateOverlay(id, patch, false)}
+            onCommit={(id, patch) => actions.updateOverlay(id, patch, true)}
+            interactive={!state.toolMode}
+          />
+          <WatermarkPreview
+            page={page}
+            watermark={state.doc.watermark}
+            assets={state.doc.assets}
+            scale={safeScale}
+            isTargetPage={state.activePageIndex === state.doc.watermark.singlePageIndex}
+          />
+          <OverlayLayer
+            page={page}
+            overlays={page.overlays.filter((o) => o.kind !== 'cover')}
             assets={state.doc.assets}
             scale={safeScale}
             selectedId={state.selectedOverlayId}
