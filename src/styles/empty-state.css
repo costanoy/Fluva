@@ -9,9 +9,19 @@
 .empty-state-inner {
   display: flex;
   flex-direction: column;
+  /* Fills the scrollable .empty-state so the footer below can be pushed to the
+     true bottom instead of sitting right after the upload card. */
+  min-height: 100%;
   gap: 36px;
   width: 100%;
   max-width: 560px;
+}
+
+.empty-state-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .dropzone {
@@ -45,7 +55,7 @@
 }
 
 .dropzone-sub {
-  font-size: 12.5px;
+  font-size: 14.5px;
   color: var(--color-neutral-600);
   font-family: var(--font-mono);
 }
@@ -68,7 +78,7 @@
 
 .pending-row-name {
   flex: 1;
-  font-size: 13.5px;
+  font-size: 15.5px;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -104,7 +114,7 @@
 }
 
 .batch-format-label {
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: .06em;
   text-transform: uppercase;
   color: var(--color-neutral-600);
@@ -123,7 +133,7 @@
   min-width: 70px;
   padding: 9px 10px;
   border-radius: var(--radius-md);
-  font-size: 12.5px;
+  font-size: 14.5px;
   font-weight: 700;
   text-align: center;
   cursor: pointer;
@@ -138,7 +148,7 @@
 
 .pending-row-size {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: var(--color-neutral-500);
   flex-shrink: 0;
 }
@@ -152,7 +162,7 @@
   background: #FBE9E3;
   border: 1px solid #E8C4B6;
   color: #8A3B18;
-  font-size: 12.5px;
+  font-size: 14.5px;
   line-height: 1.5;
 }
 
@@ -160,11 +170,25 @@
   flex: 1;
 }
 
-.empty-hint p {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.6;
+.site-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding-top: 24px;
+  margin-top: 8px;
+  border-top: 1px solid var(--color-divider);
+  color: var(--color-neutral-500);
+  font-size: 13px;
+}
+
+.site-footer-brand {
+  font-family: var(--font-heading);
   color: var(--color-neutral-600);
+}
+
+.site-footer-dot {
+  opacity: .5;
 }
 
 .recent-list {
@@ -193,12 +217,12 @@
 
 .recent-card-name {
   flex: 1;
-  font-size: 13.5px;
+  font-size: 15.5px;
   font-weight: 600;
 }
 
 .recent-card-meta {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--color-neutral-500);
 }
 

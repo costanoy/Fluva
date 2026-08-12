@@ -16,7 +16,7 @@ export function MergePanel() {
 
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>Juntar PDF</h6>
+      <h6 style={{ color: 'var(--color-accent-700)' }}>Juntar PDFs</h6>
       <div className="panel-note">
         Marque na coluna à esquerda os arquivos a juntar. Aqui você define a ordem em que as páginas entram no final do
         documento atual.
@@ -57,56 +57,6 @@ export function MergePanel() {
           </Button>
         </>
       )}
-    </>
-  );
-}
-
-/* ----------------------------------------------------------------- dividir */
-
-export function SplitPanel() {
-  const { state, actions } = useApp();
-  const total = state.doc.pages.length;
-
-  return (
-    <>
-      <h6 style={{ color: 'var(--color-accent-2-700)' }}>Dividir PDF</h6>
-
-      <div className="panel-label">Por intervalo</div>
-      <div className="panel-row">
-        <span className="panel-unit">de</span>
-        <input
-          type="number"
-          min={1}
-          max={total}
-          value={state.splitStart}
-          onChange={(e) => actions.setSplitRange(Number(e.target.value), state.splitEnd)}
-          className="number-input"
-        />
-        <span className="panel-unit">até</span>
-        <input
-          type="number"
-          min={1}
-          max={total}
-          value={state.splitEnd}
-          onChange={(e) => actions.setSplitRange(state.splitStart, Number(e.target.value))}
-          className="number-input"
-        />
-      </div>
-      <div className="panel-note">
-        Gera um PDF com as páginas selecionadas e outro com o restante.
-      </div>
-      <Button variant="primary" block onClick={actions.runSplitRange} disabled={!!state.busy}>
-        <Download size={16} strokeWidth={2.75} />
-        Dividir por intervalo
-      </Button>
-
-      <div className="panel-divider" />
-
-      <div className="panel-note">Cada página vira um PDF separado, entregues em um .zip.</div>
-      <Button block onClick={actions.runSplitEveryPage} disabled={!!state.busy}>
-        <Download size={16} strokeWidth={2.75} />
-        Dividir em {total} arquivos
-      </Button>
     </>
   );
 }

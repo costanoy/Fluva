@@ -12,7 +12,7 @@ export function Toast({ message, onDismiss }: { message: string; onDismiss: () =
         color: 'var(--color-neutral-100)',
         padding: '12px 18px',
         borderRadius: 'var(--radius-md)',
-        fontSize: 13,
+        fontSize: 15,
         display: 'flex',
         alignItems: 'center',
         gap: 12,

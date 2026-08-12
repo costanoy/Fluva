@@ -13,12 +13,35 @@
 
 .toolbar-btn {
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 14.5px;
   flex-shrink: 0;
 }
 
 .toolbar-spacer {
   flex: 1;
+}
+
+.toolbar-zoom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  color: var(--color-neutral-600);
+  padding: 0 4px;
+}
+
+.toolbar-zoom-slider {
+  width: 110px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.toolbar-zoom-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-neutral-500);
+  width: 40px;
+  flex-shrink: 0;
 }
 
 @media (max-width: 899px) {
@@ -36,5 +59,13 @@
     width: 36px;
     height: 36px;
     padding: 9px;
+  }
+
+  .toolbar-zoom-slider {
+    width: 70px;
+  }
+
+  .toolbar-zoom-value {
+    display: none;
   }
 }

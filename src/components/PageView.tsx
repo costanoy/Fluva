@@ -80,10 +80,11 @@ export function PageView({ page, source, scale, children, className, style, onCl
         width: shown.width * scale,
         height: shown.height * scale,
         background: '#FFFFFF',
+        transition: 'width .16s ease-out, height .16s ease-out',
         ...style,
       }}
     >
-      <div style={planeTransform(page, scale)}>
+      <div style={{ ...planeTransform(page, scale), transition: 'width .16s ease-out, height .16s ease-out, transform .16s ease-out' }}>
         <canvas
           ref={canvasRef}
           style={{
@@ -91,7 +92,7 @@ export function PageView({ page, source, scale, children, className, style, onCl
             width: page.width * scale,
             height: page.height * scale,
             opacity: ready ? 1 : 0,
-            transition: 'opacity .15s ease',
+            transition: 'opacity .15s ease, width .16s ease-out, height .16s ease-out',
           }}
         />
         {children}

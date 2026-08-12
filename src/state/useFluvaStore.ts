@@ -11,13 +11,25 @@ import {
   type WorkPage,
 } from '../pdf/model';
 import { formatBytes, isAcceptedFile, loadFile, readImageSize, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
-import { buildPdf } from '../pdf/build';
+import { buildPdf, TEXT_BASELINE_RATIO } from '../pdf/build';
 import { canvasToBlob, rasterizePdf, releaseAll } from '../pdf/render';
-import { compressDocument, splitByRange, splitEveryPage, type CompressLevel } from '../pdf/ops';
+import { compressDocument, extractSelectedPages, splitByRanges, splitEveryPage, splitIntoParts, type CompressLevel } from '../pdf/ops';
 import { baseNameFor, downloadBytes, exportAsDocx, exportAsImages, exportAsPdf, zipFiles, type ExportFormat } from '../pdf/exporters';
-import { clampRect } from '../pdf/geometry';
-import { DEFAULT_FAMILY_KEY } from '../pdf/fonts';
-import { applySnapshot, snapshot, type AppState, type QueuedFile, type TextItem } from './appTypes';
+import { DEFAULT_FAMILY_KEY, cleanFontName, familyByKey, matchSubstitute } from '../pdf/fonts';
+import { extractPageText, sampleRunColors, type SampledColors } from '../pdf/textExtract';
+import {
+  applySnapshot,
+  snapshot,
+  type AppState,
+  type QueuedFile,
+  type Screen,
+  type SplitMode,
+  type SplitPagesSubMode,
+  type SplitRangeItem,
+  type SplitRangeSubMode,
+  type TextItem,
+  type TextRunDraft,
+} from './appTypes';
 
 const initialState: AppState = {
   screen: 'empty',
@@ -29,12 +41,24 @@ const initialState: AppState = {
   selectedOverlayId: null,
   editingTextId: null,
   textRunTarget: null,
-  cropDraft: null,
+  textRunDraft: null,
+  pendingOverlayId: null,
+  movingOverlayId: null,
+  capturedFontKey: null,
+  fontPickerActive: false,
+  zoom: null,
+  effectiveZoom: 1,
+  dirty: false,
   exportOpen: false,
   exportFormat: 'pdf',
   mergeSelected: [],
-  splitStart: 1,
-  splitEnd: 1,
+  splitMode: 'range',
+  splitRangeSubMode: 'auto',
+  splitAutoParts: 1,
+  splitCustomRanges: [],
+  splitPagesSubMode: 'all',
+  splitSelectedPages: [],
+  splitMergeSelected: false,
   compressLevel: 'medium',
   compressOutcome: null,
   reorderFrom: '',
@@ -67,7 +91,7 @@ export function useFluvaStore() {
     setStateRaw((st) => {
       const patch = typeof updater === 'function' ? updater(st) : updater;
       if (!patch) return st;
-      return { ...st, ...patch, history: st.history.concat([snapshot(st)]).slice(-50), future: [] };
+      return { ...st, ...patch, dirty: true, history: st.history.concat([snapshot(st)]).slice(-50), future: [] };
     });
   }, []);
 
@@ -106,7 +130,7 @@ export function useFluvaStore() {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       // Let the browser's own undo work while the user is typing in a field.
-      if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
+      if (target && (/^(INPUT|TEXTAREA)$/.test(target.tagName) || target.isContentEditable)) return;
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key.toLowerCase() !== 'z') return;
       e.preventDefault();
@@ -145,6 +169,106 @@ export function useFluvaStore() {
         if (!page) return null;
         return { doc: { ...st.doc, pages: replacePage(st, st.activePageIndex, fn(page)) } };
       });
+
+    /**
+     * Shared by `replaceTextRun` and `commitPendingTextRunEdit` — covers the
+     * original run, then draws editable text on top.
+     *
+     * `bounds` (the detected run) stores its own top as `originalBaseline -
+     * originalFontSize * 0.2`, with `bounds.height === originalFontSize * 1.2`
+     * (see textExtract.ts). Recovering that baseline and re-adding this
+     * overlay's own TEXT_BASELINE_RATIO drop is what lands the new glyphs
+     * exactly where the old ones sat, however different its size is — using
+     * `bounds.y` directly here would anchor the new text almost a full line
+     * below the original, which read as the text "jumping" on click.
+     */
+    const buildTextReplacementOverlays = (
+      bounds: Rect,
+      text: string,
+      fontKey: string,
+      size: number,
+      bold: boolean,
+      italic: boolean,
+      colors: SampledColors = { color: '#2C2C2A', backgroundColor: '#FFFFFF' },
+    ) => {
+      const originalBaseline = bounds.y + bounds.height / 6;
+      const cover: Overlay = {
+        id: newId('ov'),
+        kind: 'cover',
+        x: bounds.x - 1,
+        y: bounds.y - 1,
+        width: bounds.width + 2,
+        height: bounds.height + 2,
+        color: colors.backgroundColor,
+      };
+      const replacement: Overlay = {
+        id: newId('ov'),
+        kind: 'text',
+        x: bounds.x,
+        y: originalBaseline + size * TEXT_BASELINE_RATIO,
+        text,
+        fontKey,
+        size,
+        bold,
+        italic,
+        color: colors.color,
+        rotation: 0,
+      };
+      return { cover, replacement };
+    };
+
+    /**
+     * The actual work behind the `commitPendingTextRunEdit` action — pulled out
+     * so other actions that also mean "the user is leaving this text run" (like
+     * switching pages) can trigger the same save without going through the
+     * public action object, which doesn't exist yet while it's being built.
+     *
+     * A no-op if there's no target, or if the draft is empty/unchanged from the
+     * original (nothing worth saving, and an empty replacement isn't allowed
+     * here either, matching the disabled state of the explicit button).
+     *
+     * Sampling the run's own ink/background color reads the actual rendered
+     * page, so it takes a beat — `textRunTarget`/`textRunDraft` are cleared
+     * immediately regardless (the caller is already moving on), and the save
+     * itself is applied by page id once sampling resolves, never by
+     * `activePageIndex` and never touching selection — either could easily
+     * point somewhere else entirely by the time this finishes.
+     */
+    const commitTextRunEditNow = () => {
+      const st = stateRef.current;
+      const target = st.textRunTarget;
+      const draft = st.textRunDraft;
+      if (!target || !draft) return;
+      const unchanged =
+        draft.text === target.text &&
+        draft.fontKey === target.substituteKey &&
+        draft.size === Math.round(target.fontSize * 10) / 10 &&
+        draft.bold === target.bold &&
+        draft.italic === target.italic;
+      if (!draft.text.trim() || unchanged) {
+        set({ textRunTarget: null, textRunDraft: null });
+        return;
+      }
+      const page = currentPage(st);
+      if (!page) {
+        set({ textRunTarget: null, textRunDraft: null });
+        return;
+      }
+      const pageId = page.id;
+      const bounds: Rect = { x: target.x, y: target.y, width: target.width, height: target.height };
+      set({ textRunTarget: null, textRunDraft: null });
+      sampleRunColors(st.doc, page, [bounds]).then(([colors]) => {
+        mutate((cur) => {
+          const idx = cur.doc.pages.findIndex((p) => p.id === pageId);
+          if (idx === -1) return null; // the page was deleted while colors were sampling
+          const targetPage = cur.doc.pages[idx];
+          const { cover, replacement } = buildTextReplacementOverlays(bounds, draft.text, draft.fontKey, draft.size, draft.bold, draft.italic, colors);
+          const nextPage = { ...targetPage, overlays: [...targetPage.overlays, cover, replacement] };
+          const pages = cur.doc.pages.map((p, i) => (i === idx ? nextPage : p));
+          return { doc: { ...cur.doc, pages } };
+        });
+      });
+    };
 
     const addOverlayToActivePage = (overlay: Overlay) =>
       mutate((st) => {
@@ -243,12 +367,21 @@ export function useFluvaStore() {
             toolMode: null,
             selectedOverlayId: null,
             editingTextId: null,
-            splitStart: 1,
-            splitEnd: pages.length,
+            splitMode: 'range',
+            splitRangeSubMode: 'auto',
+            splitAutoParts: Math.min(2, pages.length) || 1,
+            splitCustomRanges: [],
+            splitPagesSubMode: 'all',
+            splitSelectedPages: [],
+            splitMergeSelected: false,
             exportFormat: kind === 'pdf' ? 'pdf' : 'png',
             history: [],
             future: [],
             compressOutcome: null,
+            dirty: false,
+            zoom: null,
+            pendingOverlayId: null,
+            movingOverlayId: null,
           });
         });
       },
@@ -304,9 +437,16 @@ export function useFluvaStore() {
         setStateRaw({ ...initialState, doc: emptyDocument() });
       },
 
+      /** Switches between the home-adjacent screens (empty/beta) — no document
+       * state to preserve or discard, so a plain UI-only navigation. */
+      setScreen: (screen: Screen) => set({ screen }),
+
       /* ---------------------------------------------------------- page basics */
 
-      setActivePage: (index: number) => set({ activePageIndex: index, selectedOverlayId: null, editingTextId: null }),
+      setActivePage: (index: number) => {
+        commitTextRunEditNow();
+        set({ activePageIndex: index, selectedOverlayId: null, editingTextId: null, textRunTarget: null, textRunDraft: null });
+      },
 
       rotateActivePage: () => updateActivePage((page) => ({ ...page, rotation: (page.rotation + 90) % 360 })),
 
@@ -358,7 +498,7 @@ export function useFluvaStore() {
             x: page.width * 0.15,
             y: page.height * 0.7,
             text: 'Novo texto',
-            fontKey: DEFAULT_FAMILY_KEY,
+            fontKey: st.capturedFontKey ?? DEFAULT_FAMILY_KEY,
             size: 18,
             bold: false,
             italic: false,
@@ -428,10 +568,25 @@ export function useFluvaStore() {
           return {
             doc: { ...st.doc, pages: replacePage(st, st.activePageIndex, next) },
             selectedOverlayId: overlay.id,
+            pendingOverlayId: overlay.id,
           };
         }),
 
-      selectOverlay: (id: string | null) => set({ selectedOverlayId: id, editingTextId: null, toolMode: null }),
+      selectOverlay: (id: string | null) =>
+        set((st) => ({
+          selectedOverlayId: id,
+          editingTextId: null,
+          toolMode: null,
+          // Selecting something else (or nothing) implicitly confirms whatever
+          // shape/text was pending or being moved; only staying on the same one
+          // keeps that state.
+          pendingOverlayId: id === st.pendingOverlayId ? st.pendingOverlayId : null,
+          movingOverlayId: id === st.movingOverlayId ? st.movingOverlayId : null,
+        })),
+
+      setMovingOverlay: (id: string | null) => set({ movingOverlayId: id }),
+
+      confirmPendingOverlay: () => set({ pendingOverlayId: null }),
 
       updateOverlay: (id: string, patch: Partial<Overlay>, recordHistory = true) => {
         const apply = (st: AppState): Patch => {
@@ -455,66 +610,112 @@ export function useFluvaStore() {
           };
         }),
 
-      /** Replaces an original text run: covers it, then draws editable text on top. */
-      replaceTextRun: (bounds: Rect, text: string, fontKey: string, size: number, bold: boolean, italic: boolean) =>
-        mutate((st) => {
-          const page = currentPage(st);
-          if (!page) return null;
-          const cover: Overlay = {
-            id: newId('ov'),
-            kind: 'cover',
-            x: bounds.x - 1,
-            y: bounds.y - 1,
-            width: bounds.width + 2,
-            height: bounds.height + 2,
-            color: '#FFFFFF',
-          };
-          const replacement: Overlay = {
-            id: newId('ov'),
-            kind: 'text',
-            x: bounds.x,
-            y: bounds.y + size * 0.2,
-            text,
-            fontKey,
-            size,
-            bold,
-            italic,
-            color: '#2C2C2A',
-            rotation: 0,
-          };
-          const next = { ...page, overlays: [...page.overlays, cover, replacement] };
-          return {
-            doc: { ...st.doc, pages: replacePage(st, st.activePageIndex, next) },
-            selectedOverlayId: replacement.id,
-            editingTextId: null,
-          };
-        }),
+      /**
+       * Replaces an original text run: covers it, then draws editable text on
+       * top. Reads the run's own ink/background color off the rendered page
+       * first (a beat's delay), then commits by page id — never by
+       * `activePageIndex`, which could point somewhere else by the time
+       * sampling resolves.
+       */
+      replaceTextRun: (bounds: Rect, text: string, fontKey: string, size: number, bold: boolean, italic: boolean, enterMoveMode = false) => {
+        const st = stateRef.current;
+        const page = currentPage(st);
+        if (!page) return;
+        const pageId = page.id;
+        sampleRunColors(st.doc, page, [bounds]).then(([colors]) => {
+          mutate((cur) => {
+            const idx = cur.doc.pages.findIndex((p) => p.id === pageId);
+            if (idx === -1) return null;
+            const targetPage = cur.doc.pages[idx];
+            const { cover, replacement } = buildTextReplacementOverlays(bounds, text, fontKey, size, bold, italic, colors);
+            const nextPage = { ...targetPage, overlays: [...targetPage.overlays, cover, replacement] };
+            const pages = cur.doc.pages.map((p, i) => (i === idx ? nextPage : p));
+            return {
+              doc: { ...cur.doc, pages },
+              selectedOverlayId: replacement.id,
+              editingTextId: null,
+              movingOverlayId: enterMoveMode ? replacement.id : null,
+            };
+          });
+        });
+      },
 
       setEditingText: (id: string | null) => set({ editingTextId: id, selectedOverlayId: null }),
 
-      setTextRunTarget: (item: TextItem | null) => set({ textRunTarget: item }),
-
-      /* ----------------------------------------------------------------- crop */
-
-      setCropDraft: (rect: Rect | null) => set({ cropDraft: rect }),
-
-      applyCrop: () =>
-        mutate((st) => {
-          const page = currentPage(st);
-          const draft = st.cropDraft;
-          if (!page || !draft) return null;
-          const crop = clampRect(draft, page.width, page.height);
-          return {
-            doc: { ...st.doc, pages: replacePage(st, st.activePageIndex, { ...page, crop }) },
-            cropDraft: null,
-          };
+      setTextRunTarget: (item: TextItem | null) =>
+        set({
+          textRunTarget: item,
+          textRunDraft: item
+            ? { text: item.text, fontKey: item.substituteKey, size: Math.round(item.fontSize * 10) / 10, bold: item.bold, italic: item.italic }
+            : null,
         }),
 
-      clearCrop: () =>
-        mutate((st) => {
-          const page = currentPage(st);
-          if (!page || !page.crop) return null;
-          return { doc: { ...st.doc, pages: replacePage(st, st.activePageIndex, { ...page, crop: null }) }, cropDraft: null };
+      setTextRunDraft: (patch: Partial<TextRunDraft>) =>
+        set((st) => (st.textRunDraft ? { textRunDraft: { ...st.textRunDraft, ...patch } } : null)),
+
+      /**
+       * Called whenever the user leaves a text run being edited — clicking blank
+       * page, selecting something else, picking a different run, or switching
+       * pages — so nothing needs an explicit "Substituir texto" click to be kept.
+       */
+      commitPendingTextRunEdit: commitTextRunEditNow,
+
+      /**
+       * Scans every page for runs whose original font matches the given one
+       * (the same detection `matchSubstitute` itself uses) and rewrites each —
+       * keeping that run's own text, size, bold/italic, ink color and
+       * background — just switching the family to the chosen substitute. Lets
+       * one font choice apply document-wide instead of repeating it run by run,
+       * without flattening every run's own formatting to whatever the one run
+       * the user started from happened to look like.
+       */
+      applyFontToMatchingRuns: (originalFont: string, fontKey: string, excludeRunId?: string) =>
+        withBusy('Procurando esta fonte no documento…', async () => {
+          const st = stateRef.current;
+          const target = cleanFontName(originalFont).toLowerCase();
+          const familyLabel = familyByKey(fontKey).label;
+          if (!target) {
+            set({ toast: 'Não foi possível identificar essa fonte.' });
+            return 0;
+          }
+
+          const perPage = await Promise.all(
+            st.doc.pages.map(async (page) => {
+              const items = await extractPageText(st.doc, page);
+              const matches = items.filter((item) => item.id !== excludeRunId && cleanFontName(item.originalFont).toLowerCase() === target);
+              if (!matches.length) return { pageId: page.id, matches, colors: [] as SampledColors[] };
+              const colors = await sampleRunColors(
+                st.doc,
+                page,
+                matches.map((item) => ({ x: item.x, y: item.y, width: item.width, height: item.height })),
+              );
+              return { pageId: page.id, matches, colors };
+            }),
+          );
+
+          const totalMatches = perPage.reduce((n, p) => n + p.matches.length, 0);
+          if (!totalMatches) {
+            set({ toast: 'Nenhum outro texto com essa fonte foi encontrado no documento.' });
+            return 0;
+          }
+
+          mutate((cur) => {
+            const pages = cur.doc.pages.map((page) => {
+              const found = perPage.find((p) => p.pageId === page.id);
+              if (!found || !found.matches.length) return page;
+              const added = found.matches.flatMap((item, i) => {
+                const bounds: Rect = { x: item.x, y: item.y, width: item.width, height: item.height };
+                const size = Math.round(item.fontSize * 10) / 10;
+                const { cover, replacement } = buildTextReplacementOverlays(bounds, item.text, fontKey, size, item.bold, item.italic, found.colors[i]);
+                return [cover, replacement];
+              });
+              return { ...page, overlays: [...page.overlays, ...added] };
+            });
+            return { doc: { ...cur.doc, pages } };
+          });
+
+          set({ toast: `${totalMatches} texto(s) atualizado(s) para ${familyLabel}.` });
+          return totalMatches;
         }),
 
       /* ------------------------------------------------------------ watermark */
@@ -552,10 +753,14 @@ export function useFluvaStore() {
           toolMode: st.toolMode === toolMode ? null : toolMode,
           selectedOverlayId: null,
           editingTextId: null,
-          cropDraft: null,
           compressOutcome: toolMode === 'compress' ? st.compressOutcome : null,
-          splitStart: 1,
-          splitEnd: st.doc.pages.length,
+          splitMode: 'range',
+          splitRangeSubMode: 'auto',
+          splitAutoParts: Math.min(2, st.doc.pages.length) || 1,
+          splitCustomRanges: [],
+          splitPagesSubMode: 'all',
+          splitSelectedPages: [],
+          splitMergeSelected: false,
         })),
 
       toggleMergeSource: (sourceId: string) =>
@@ -625,24 +830,81 @@ export function useFluvaStore() {
           };
         }),
 
-      setSplitRange: (start: number, end: number) => set({ splitStart: start, splitEnd: end }),
+      setSplitMode: (mode: SplitMode) => set({ splitMode: mode }),
 
-      runSplitRange: async () => {
-        const st = stateRef.current;
-        await withBusy('Dividindo…', async () => {
-          const results = await splitByRange(st.doc, baseNameFor(st.doc), st.splitStart, st.splitEnd);
-          if (results.length === 1) downloadBytes(results[0].bytes, results[0].name, 'application/pdf');
-          else zipFiles(results.map((r) => ({ name: r.name, bytes: r.bytes })), `${baseNameFor(st.doc)}_dividido.zip`);
-          set({ toast: `Dividido em ${results.length} arquivo(s).`, toolMode: null });
-        });
+      setSplitRangeSubMode: (mode: SplitRangeSubMode) => set({ splitRangeSubMode: mode }),
+
+      /** Clamped here (not just via the input's min/max) so a typed '0' or a
+       * number past the page count can never actually be stored. */
+      setSplitAutoParts: (n: number) => {
+        const total = stateRef.current.doc.pages.length;
+        set({ splitAutoParts: Math.max(1, Math.min(total || 1, Math.round(n) || 1)) });
       },
 
-      runSplitEveryPage: async () => {
+      addSplitCustomRange: () =>
+        set((st) => ({
+          splitCustomRanges: [...st.splitCustomRanges, { id: newId('rg'), start: 1, end: st.doc.pages.length }],
+        })),
+
+      updateSplitCustomRange: (id: string, patch: Partial<Pick<SplitRangeItem, 'start' | 'end'>>) =>
+        set((st) => ({
+          splitCustomRanges: st.splitCustomRanges.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+        })),
+
+      removeSplitCustomRange: (id: string) =>
+        set((st) => ({ splitCustomRanges: st.splitCustomRanges.filter((r) => r.id !== id) })),
+
+      setSplitPagesSubMode: (mode: SplitPagesSubMode) => set({ splitPagesSubMode: mode }),
+
+      toggleSplitSelectedPage: (pageNumber: number) =>
+        set((st) => ({
+          splitSelectedPages: st.splitSelectedPages.includes(pageNumber)
+            ? st.splitSelectedPages.filter((p) => p !== pageNumber)
+            : [...st.splitSelectedPages, pageNumber].sort((a, b) => a - b),
+        })),
+
+      setSplitMergeSelected: (v: boolean) => set({ splitMergeSelected: v }),
+
+      /** Reads whichever split mode/sub-mode is currently active and runs it —
+       * the same four operations the center preview is describing live. */
+      runSplit: async () => {
         const st = stateRef.current;
-        await withBusy('Dividindo páginas…', async () => {
-          const results = await splitEveryPage(st.doc, baseNameFor(st.doc));
-          zipFiles(results.map((r) => ({ name: r.name, bytes: r.bytes })), `${baseNameFor(st.doc)}_paginas.zip`);
-          set({ toast: `${results.length} PDFs gerados, um por página.`, toolMode: null });
+        await withBusy('Dividindo…', async () => {
+          const baseName = baseNameFor(st.doc);
+          let results: Awaited<ReturnType<typeof splitEveryPage>> = [];
+          let message = '';
+
+          if (st.splitMode === 'range') {
+            if (st.splitRangeSubMode === 'auto') {
+              results = await splitIntoParts(st.doc, baseName, st.splitAutoParts);
+              message = `Dividido em ${results.length} arquivo(s).`;
+            } else {
+              if (!st.splitCustomRanges.length) {
+                set({ toast: 'Adicione pelo menos um intervalo.' });
+                return;
+              }
+              results = await splitByRanges(st.doc, baseName, st.splitCustomRanges);
+              message = `Dividido em ${results.length} arquivo(s).`;
+            }
+          } else {
+            if (st.splitPagesSubMode === 'all') {
+              results = await splitEveryPage(st.doc, baseName);
+              message = `${results.length} PDFs gerados, um por página.`;
+            } else {
+              if (!st.splitSelectedPages.length) {
+                set({ toast: 'Selecione ao menos uma página.' });
+                return;
+              }
+              results = await extractSelectedPages(st.doc, baseName, st.splitSelectedPages, st.splitMergeSelected);
+              message = st.splitMergeSelected
+                ? 'Páginas selecionadas mescladas em um PDF.'
+                : `${results.length} PDFs gerados a partir das páginas selecionadas.`;
+            }
+          }
+
+          if (results.length === 1) downloadBytes(results[0].bytes, results[0].name, 'application/pdf');
+          else zipFiles(results.map((r) => ({ name: r.name, bytes: r.bytes })), `${baseName}_dividido.zip`);
+          set({ toast: message, toolMode: null });
         });
       },
 
@@ -714,14 +976,58 @@ export function useFluvaStore() {
                 : `${base}.docx exportado, mas nenhum texto foi encontrado no PDF.`,
             });
           }
+          // Reached only if the export above didn't throw — the document is now
+          // safely out of the browser, so the "unsaved changes" warning can stand down.
+          set({ dirty: false });
         });
       },
 
       dismissToast: () => set({ toast: null }),
+
+      /* ----------------------------------------------------------------- zoom */
+
+      setZoom: (zoom: number | null) => set({ zoom }),
+      setEffectiveZoom: (effectiveZoom: number) => set({ effectiveZoom }),
+
+      /* ------------------------------------------------------------- font pick */
+
+      setFontPickerActive: (active: boolean) => set({ fontPickerActive: active }),
+
+      /** Reads the font a clicked DOM element is actually rendered in and maps it
+       * to the closest substitute family, so newly added text can match it. */
+      captureFontFromElement: (el: Element) => {
+        const family = getComputedStyle(el).fontFamily;
+        const match = matchSubstitute(family);
+        set({ capturedFontKey: match.family.key, fontPickerActive: false, toast: `Fonte capturada: ${match.family.label}` });
+      },
+
       undo,
       redo,
     };
   }, [set, mutate, undo, redo, withBusy]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      // Let Delete/Backspace/Enter do their normal job while the user is typing —
+      // including typing directly into a selected overlay's own text on the canvas.
+      if (target && (/^(INPUT|TEXTAREA)$/.test(target.tagName) || target.isContentEditable)) return;
+
+      if (e.key === 'Enter' && stateRef.current.movingOverlayId) {
+        e.preventDefault();
+        actions.setMovingOverlay(null);
+        return;
+      }
+
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      const id = stateRef.current.selectedOverlayId;
+      if (!id) return;
+      e.preventDefault();
+      actions.removeOverlay(id);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [actions]);
 
   return { state, actions };
 }

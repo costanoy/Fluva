@@ -8,28 +8,69 @@ export interface SplitResult {
   bytes: Uint8Array;
 }
 
+export interface PageRange {
+  /** 1-based, inclusive. */
+  start: number;
+  end: number;
+}
+
+/** Divides every page into `parts` contiguous, roughly-equal-sized files. */
+export async function splitIntoParts(doc: DocumentState, baseName: string, parts: number): Promise<SplitResult[]> {
+  const total = doc.pages.length;
+  const n = Math.max(1, Math.min(total, Math.round(parts) || 1));
+  const base = Math.floor(total / n);
+  const extra = total % n; // the first `extra` files get one extra page, so sizes never differ by more than one.
+
+  const results: SplitResult[] = [];
+  let cursor = 0;
+  for (let i = 0; i < n; i++) {
+    const count = base + (i < extra ? 1 : 0);
+    if (count === 0) continue;
+    const from = cursor + 1;
+    const to = cursor + count;
+    results.push({
+      name: `${baseName}_parte${i + 1}_paginas_${from}-${to}.pdf`,
+      bytes: await buildPdf({ ...doc, pages: doc.pages.slice(cursor, cursor + count) }),
+    });
+    cursor += count;
+  }
+  return results;
+}
+
+/** Each given 1-based inclusive range becomes its own PDF. */
+export async function splitByRanges(doc: DocumentState, baseName: string, ranges: PageRange[]): Promise<SplitResult[]> {
+  const total = doc.pages.length;
+  const results: SplitResult[] = [];
+  for (let i = 0; i < ranges.length; i++) {
+    const from = Math.max(1, Math.min(total, Math.min(ranges[i].start, ranges[i].end)));
+    const to = Math.max(1, Math.min(total, Math.max(ranges[i].start, ranges[i].end)));
+    results.push({
+      name: `${baseName}_intervalo${i + 1}_paginas_${from}-${to}.pdf`,
+      bytes: await buildPdf({ ...doc, pages: doc.pages.slice(from - 1, to) }),
+    });
+  }
+  return results;
+}
+
 /**
- * Splits out a 1-based, inclusive page range. Returns the extracted range and,
- * when pages are left over, the remainder as a second file.
+ * Extracts the given 1-based page numbers — either as one merged PDF (in the
+ * order given) when `merge` is true, or as one PDF per page otherwise.
  */
-export async function splitByRange(
+export async function extractSelectedPages(
   doc: DocumentState,
   baseName: string,
-  start: number,
-  end: number,
+  pageNumbers: number[],
+  merge: boolean,
 ): Promise<SplitResult[]> {
   const total = doc.pages.length;
-  const from = Math.max(1, Math.min(total, Math.min(start, end)));
-  const to = Math.max(1, Math.min(total, Math.max(start, end)));
+  const valid = pageNumbers.filter((n) => n >= 1 && n <= total);
 
-  const inRange = doc.pages.slice(from - 1, to);
-  const rest = [...doc.pages.slice(0, from - 1), ...doc.pages.slice(to)];
-
-  const results: SplitResult[] = [
-    { name: `${baseName}_paginas_${from}-${to}.pdf`, bytes: await buildPdf({ ...doc, pages: inRange }) },
-  ];
-  if (rest.length) {
-    results.push({ name: `${baseName}_restante.pdf`, bytes: await buildPdf({ ...doc, pages: rest }) });
+  if (merge) {
+    return [{ name: `${baseName}_selecionadas.pdf`, bytes: await buildPdf({ ...doc, pages: valid.map((n) => doc.pages[n - 1]) }) }];
+  }
+  const results: SplitResult[] = [];
+  for (const n of valid) {
+    results.push({ name: `${baseName}_pagina_${n}.pdf`, bytes: await buildPdf({ ...doc, pages: [doc.pages[n - 1]] }) });
   }
   return results;
 }

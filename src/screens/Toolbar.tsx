@@ -1,8 +1,9 @@
-import { AlignJustify, Columns2, Combine, Droplet, Minimize2, Pencil, Redo2, RotateCw, Undo2 } from 'lucide-react';
+import { AlignJustify, Columns2, Combine, Droplet, Minimize2, Pencil, Redo2, RotateCw, Search, Undo2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Button } from '../components/Button';
 import { useApp } from '../state/AppContext';
 import type { ToolMode } from '../state/appTypes';
+import { MIN_SCALE, MAX_SCALE } from './EditorCanvas';
 import '../styles/toolbar.css';
 
 export function Toolbar() {
@@ -37,7 +38,7 @@ export function Toolbar() {
         <span className="toolbar-btn-label">Editar</span>
       </Button>
 
-      {isPdf && tool('merge', <Combine size={15} strokeWidth={2.75} />, 'Juntar PDF')}
+      {isPdf && tool('merge', <Combine size={15} strokeWidth={2.75} />, 'Juntar PDFs')}
       {isPdf && tool('split', <Columns2 size={15} strokeWidth={2.75} />, 'Dividir PDF')}
       {tool('compress', <Minimize2 size={15} strokeWidth={2.75} />, 'Comprimir')}
 
@@ -50,6 +51,22 @@ export function Toolbar() {
       {state.doc.pages.length > 1 && tool('reorder', <AlignJustify size={15} strokeWidth={2.75} />, 'Organizar')}
 
       <div className="toolbar-spacer" />
+
+      <div className="toolbar-zoom">
+        <Search size={15} strokeWidth={2.5} aria-label="Zoom" />
+        <input
+          type="range"
+          className="toolbar-zoom-slider"
+          min={Math.round(MIN_SCALE * 100)}
+          max={Math.round(MAX_SCALE * 100)}
+          step={1}
+          value={Math.round(state.effectiveZoom * 100)}
+          onChange={(e) => actions.setZoom(Number(e.target.value) / 100)}
+          title={`Zoom: ${Math.round(state.effectiveZoom * 100)}%`}
+          aria-label="Zoom da página"
+        />
+        <span className="toolbar-zoom-value">{Math.round(state.effectiveZoom * 100)}%</span>
+      </div>
 
       <Button icon disabled={!state.history.length || busy} title="Desfazer (Ctrl+Z)" onClick={actions.undo}>
         <Undo2 size={15} strokeWidth={2.75} />

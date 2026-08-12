@@ -4,15 +4,26 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* No native scrolling — a page bigger than the viewport is repositioned by
+     dragging it (see .canvas-stage's transform), not by scrolling. */
   overflow: hidden;
   position: relative;
   min-width: 0;
   min-height: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.canvas-area-panning {
+  cursor: grabbing;
 }
 
 .canvas-stage {
   position: relative;
   line-height: 0;
+  margin: auto;
+  flex-shrink: 0;
+  will-change: transform;
 }
 
 .doc-page {
@@ -39,84 +50,3 @@
   outline: 1.5px solid var(--color-accent);
 }
 
-.crop-surface {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  cursor: crosshair;
-  background: rgba(44, 44, 42, .45);
-  touch-action: none;
-}
-
-.crop-rect {
-  position: absolute;
-  border: 2px solid var(--color-accent);
-  background: rgba(255, 255, 255, .12);
-  box-shadow: 0 0 0 9999px rgba(44, 44, 42, .0);
-  mix-blend-mode: normal;
-  backdrop-filter: brightness(2.2);
-}
-
-.crop-actions {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: var(--radius-pill);
-  background: var(--color-neutral-900);
-  box-shadow: var(--shadow-lg);
-  z-index: 30;
-  line-height: 1.4;
-}
-
-.crop-actions span {
-  font-size: 12px;
-  color: var(--color-neutral-100);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-
-.canvas-badge {
-  position: absolute;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 14px;
-  border-radius: var(--radius-pill);
-  background: var(--color-neutral-900);
-  color: var(--color-neutral-100);
-  font-size: 11.5px;
-  box-shadow: var(--shadow-md);
-  z-index: 20;
-}
-
-.canvas-badge button {
-  border: none;
-  background: transparent;
-  color: var(--color-accent-300);
-  font-family: var(--font-body);
-  font-size: 11.5px;
-  font-weight: 700;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0;
-}
-
-@media (max-width: 899px) {
-  .crop-actions {
-    bottom: 8px;
-    padding: 8px 10px;
-    gap: 6px;
-  }
-
-  .crop-actions span {
-    display: none;
-  }
-}

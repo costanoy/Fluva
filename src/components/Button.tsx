@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary';
@@ -8,7 +8,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children?: ReactNode;
 }
 
-export function Button({ variant = 'secondary', icon, block, active, className, style, children, ...rest }: ButtonProps) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  { variant = 'secondary', icon, block, active, className, style, children, ...rest },
+  ref,
+) {
   const classes = ['btn', variant === 'primary' ? 'btn-primary' : 'btn-secondary'];
   if (icon) classes.push('btn-icon');
   if (block) classes.push('btn-block');
@@ -20,8 +23,8 @@ export function Button({ variant = 'secondary', icon, block, active, className, 
   };
 
   return (
-    <button className={classes.join(' ')} style={mergedStyle} {...rest}>
+    <button ref={ref} className={classes.join(' ')} style={mergedStyle} {...rest}>
       {children}
     </button>
   );
-}
+});

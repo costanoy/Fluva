@@ -19,7 +19,19 @@
       "Bash(rmdir public *)",
       "Bash(npm ls *)",
       "Bash(find \"C:/Users/Vinicius Costa/Desktop\" \"C:/Users/Vinicius Costa/Downloads\" -iname \"*MTCNA*\" 2>/dev/null)",
-      "Bash(cd \"C:\\\\Users\\\\Vinicius Costa\\\\Desktop\\\\Fluva\" && mkdir -p public/__test__ && cp \"C:/Users/Vinicius Costa/Downloads/MTCNA.pdf\" public/__test__/ && ls -la public/__test__/ && head -c 2000 public/__test__/MTCNA.pdf | strings | head -40)"
+      "Bash(cd \"C:\\\\Users\\\\Vinicius Costa\\\\Desktop\\\\Fluva\" && mkdir -p public/__test__ && cp \"C:/Users/Vinicius Costa/Downloads/MTCNA.pdf\" public/__test__/ && ls -la public/__test__/ && head -c 2000 public/__test__/MTCNA.pdf | strings | head -40)",
+      "Bash(node -e \"const m = require\\('lucide-react'\\); console.log\\(typeof m.Move\\);\")",
+      "Bash(mkdir -p public/__test__)",
+      "Bash(cp \"C:/Users/VINICI~1/AppData/Local/Temp/claude/C--Users-Vinicius-Costa-Desktop-Fluva/1f008d7d-2801-421b-a241-d7af9ee98e50/scratchpad/testfiles/relatorio_teste.pdf\" public/__test__/)",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Vinicius Costa\\\\Desktop\\\\Fluva\\\\public\\\\__test__\" && cp \"C:\\\\Users\\\\VINICI~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Vinicius-Costa-Desktop-Fluva\\\\1f008d7d-2801-421b-a241-d7af9ee98e50\\\\scratchpad\\\\testfiles\\\\relatorio_teste.pdf\" \"C:\\\\Users\\\\Vinicius Costa\\\\Desktop\\\\Fluva\\\\public\\\\__test__\\\\\" 2>&1; ls \"C:\\\\Users\\\\Vinicius Costa\\\\Desktop\\\\Fluva\\\\public\\\\__test__\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Vinicius Costa\\\\Desktop\\\\Fluva\\\\public\\\\__test__\" *)",
+      "PowerShell(Copy-Item -Path \"C:\\\\Users\\\\VINICI~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Vinicius-Costa-Desktop-Fluva\\\\1f008d7d-2801-421b-a241-d7af9ee98e50\\\\scratchpad\\\\testfiles\\\\relatorio_teste.pdf\" -Destination \"C:\\\\Users\\\\Vinicius Costa\\\\Desktop\\\\Fluva\\\\public\\\\__test__\\\\relatorio_teste.pdf\")",
+      "PowerShell(Copy-Item -Path \"C:\\\\Users\\\\VINICI~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Vinicius-Costa-Desktop-Fluva\\\\1f008d7d-2801-421b-a241-d7af9ee98e50\\\\scratchpad\\\\testfiles\\\\relatorio_teste.pdf\" -Destination \"C:\\\\Users\\\\Vinicius Costa\\\\Desktop\\\\Fluva\\\\public\\\\__test__\\\\relatorio_teste.pdf\" -Force)",
+      "Bash(curl -sI --max-time 5 https://github.com)",
+      "Bash(curl -sI --max-time 5 https://raw.githubusercontent.com)",
+      "Bash(npm view *)",
+      "Bash(curl -s --max-time 10 -A \"Mozilla/4.0 \\(compatible; MSIE 6.0; Windows NT 5.1\\)\" \"https://fonts.googleapis.com/css2?family=Carlito:ital,wght@0,400;0,700;1,400;1,700&display=swap\")",
+      "Bash(curl -sI --max-time 10 \"https://fonts.gstatic.com/l/font?kit=3Jn9SDPw3m-pk039PDE&skey=813eac9ea44a6f12&v=v4\")"
     ]
   }
 }

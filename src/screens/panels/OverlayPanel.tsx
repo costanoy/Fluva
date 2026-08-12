@@ -1,4 +1,4 @@
-import { RotateCw, Trash2 } from 'lucide-react';
+import { Check, Circle, Palette, Pipette, RotateCw, Square, Trash2 } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { useApp } from '../../state/AppContext';
 import { SUBSTITUTE_FAMILIES } from '../../pdf/fonts';
@@ -9,8 +9,9 @@ const TEXT_COLORS = ['#2C2C2A', '#1D9E75', '#D85A30', '#534AB7', '#FFFFFF'];
 
 /** Editor for the overlay the user has selected on the page. */
 export function OverlayPanel({ overlay }: { overlay: Overlay }) {
-  const { actions } = useApp();
+  const { state, actions } = useApp();
   const update = (patch: Partial<Overlay>) => actions.updateOverlay(overlay.id, patch, true);
+  const isPending = state.pendingOverlayId === overlay.id;
 
   if (overlay.kind === 'text') {
     return (
@@ -18,10 +19,10 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
         <h6 style={{ color: 'var(--color-accent-700)' }}>Texto</h6>
 
         <div className="panel-label">Conteúdo</div>
-        <textarea className="text-input" rows={3} value={overlay.text} onChange={(e) => update({ text: e.target.value })} />
+        <textarea className="text-input" rows={6} value={overlay.text} onChange={(e) => update({ text: e.target.value })} />
 
         <div className="panel-label">Fonte</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="font-option-list">
           {SUBSTITUTE_FAMILIES.map((f) => (
             <button
               key={f.key}
@@ -127,12 +128,37 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
       <>
         <h6 style={{ color: 'var(--color-accent-700)' }}>Forma</h6>
 
+        {isPending && (
+          <Button variant="primary" block style={{ marginTop: 0 }} onClick={actions.confirmPendingOverlay}>
+            <Check size={16} strokeWidth={2.75} />
+            Confirmar colocação
+          </Button>
+        )}
+
+        <div className="panel-label" style={{ marginTop: isPending ? undefined : 6 }}>Formato</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className="shape-type-btn"
+            aria-label="Retângulo"
+            title="Retângulo"
+            style={{ background: overlay.shape === 'rect' ? 'var(--color-accent-100)' : undefined, borderColor: overlay.shape === 'rect' ? 'var(--color-accent)' : undefined }}
+            onClick={() => update({ shape: 'rect' })}
+          >
+            <Square size={20} strokeWidth={2.5} />
+          </button>
+          <button
+            className="shape-type-btn"
+            aria-label="Círculo"
+            title="Círculo"
+            style={{ background: overlay.shape === 'circle' ? 'var(--color-accent-100)' : undefined, borderColor: overlay.shape === 'circle' ? 'var(--color-accent)' : undefined }}
+            onClick={() => update({ shape: 'circle' })}
+          >
+            <Circle size={20} strokeWidth={2.5} />
+          </button>
+        </div>
+
         <div className="panel-label">Cor</div>
         <Swatches colors={SHAPE_COLORS} value={overlay.color} onChange={(color) => update({ color })} />
-
-        <Button block onClick={() => update({ shape: overlay.shape === 'rect' ? 'circle' : 'rect' })}>
-          Alternar para {overlay.shape === 'rect' ? 'círculo' : 'retângulo'}
-        </Button>
 
         <div className="panel-label">Tamanho</div>
         <div className="panel-row">
@@ -163,8 +189,21 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
 }
 
 function Swatches({ colors, value, onChange }: { colors: string[]; value: string; onChange: (c: string) => void }) {
+  const hasEyeDropper = typeof window !== 'undefined' && 'EyeDropper' in window;
+
+  const pickFromScreen = async () => {
+    try {
+      // EyeDropper isn't in the standard DOM lib types yet; the runtime check above guards it.
+      const EyeDropperCtor = (window as unknown as { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+      const result = await new EyeDropperCtor().open();
+      onChange(result.sRGBHex);
+    } catch {
+      // User cancelled the pick (Escape) — nothing to do.
+    }
+  };
+
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       {colors.map((c) => (
         <button
           key={c}
@@ -174,8 +213,26 @@ function Swatches({ colors, value, onChange }: { colors: string[]; value: string
           onClick={() => onChange(c)}
         />
       ))}
+      <label className="swatch swatch-custom" style={{ background: value }} title="Escolher cor (RGB)">
+        <Palette size={13} strokeWidth={2.5} color={isLight(value) ? '#2C2C2A' : '#FFFFFF'} />
+        <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000'} onChange={(e) => onChange(e.target.value)} />
+      </label>
+      {hasEyeDropper && (
+        <button className="swatch swatch-eyedrop" title="Capturar cor da tela" aria-label="Capturar cor da tela" onClick={pickFromScreen}>
+          <Pipette size={13} strokeWidth={2.5} />
+        </button>
+      )}
     </div>
   );
+}
+
+function isLight(hex: string): boolean {
+  const h = hex.replace('#', '');
+  if (h.length !== 6) return true;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
 }
 
 function RotationSlider({ value, onChange, onCommit }: { value: number; onChange: (v: number) => void; onCommit: (v: number) => void }) {

@@ -1,6 +1,7 @@
 import { useCallback, useState, type DragEvent } from 'react';
 import { FileText, Image as ImageIcon, Upload, X } from 'lucide-react';
 import { Button } from '../components/Button';
+import { Footer } from '../components/Footer';
 import { useApp } from '../state/AppContext';
 import { formatBytes } from '../pdf/loader';
 import '../styles/empty-state.css';
@@ -32,7 +33,7 @@ export function EmptyState() {
   return (
     <div className="empty-state">
       <div className="empty-state-inner">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="empty-state-content">
           <div
             className={`dropzone${dragOver ? ' dropzone-active' : ''}`}
             role="button"
@@ -137,13 +138,7 @@ export function EmptyState() {
           )}
         </div>
 
-        <div className="empty-hint">
-          <h6 style={{ marginBottom: 8, color: 'var(--color-neutral-600)' }}>Tudo acontece no seu dispositivo</h6>
-          <p>
-            Nenhum arquivo é enviado para servidores. A leitura, a edição e a exportação são feitas inteiramente no seu
-            navegador — o documento nunca sai do seu computador.
-          </p>
-        </div>
+        <Footer />
       </div>
     </div>
   );
