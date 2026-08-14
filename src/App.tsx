@@ -4,9 +4,7 @@ import { TopBar } from './screens/TopBar';
 import { EmptyState } from './screens/EmptyState';
 import { BetaScreen } from './screens/BetaScreen';
 import { EditingScreen } from './screens/EditingScreen';
-
-const UNSAVED_CHANGES_MESSAGE =
-  'Você tem alterações não exportadas neste documento. Se voltar, elas serão perdidas. Deseja continuar?';
+import { t } from './i18n/translations';
 
 function AppShell() {
   const { state, actions } = useApp();
@@ -40,7 +38,7 @@ function AppShell() {
   useEffect(() => {
     const onPopState = () => {
       if (state.screen !== 'editing') return;
-      if (state.dirty && !window.confirm(UNSAVED_CHANGES_MESSAGE)) {
+      if (state.dirty && !window.confirm(t('nav.unsavedChanges'))) {
         // Cancel the back navigation by re-planting the same breadcrumb.
         window.history.pushState({ fluvaScreen: 'editing' }, '', window.location.href);
         return;

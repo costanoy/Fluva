@@ -89,15 +89,11 @@ export async function splitEveryPage(doc: DocumentState, baseName: string): Prom
 
 export type CompressLevel = 'low' | 'medium' | 'high';
 
-const COMPRESS_SETTINGS: Record<CompressLevel, { dpi: number; quality: number; label: string }> = {
-  low: { dpi: 150, quality: 0.82, label: 'Leve' },
-  medium: { dpi: 110, quality: 0.65, label: 'Equilibrada' },
-  high: { dpi: 80, quality: 0.5, label: 'Máxima' },
+const COMPRESS_SETTINGS: Record<CompressLevel, { dpi: number; quality: number }> = {
+  low: { dpi: 150, quality: 0.82 },
+  medium: { dpi: 110, quality: 0.65 },
+  high: { dpi: 80, quality: 0.5 },
 };
-
-export function compressLabel(level: CompressLevel): string {
-  return COMPRESS_SETTINGS[level].label;
-}
 
 export type CompressStrategy = 'raster' | 'rebuild';
 

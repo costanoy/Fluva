@@ -36,6 +36,21 @@ button, input {
   color: var(--color-neutral-600);
 }
 
+/* Keeps content available to screen readers and search engine crawlers
+   without taking up visual space — used for the page's real <h1>, which the
+   visual design intentionally leaves out in favor of the dropzone heading. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .unbutton {
   border: none;
   background: none;

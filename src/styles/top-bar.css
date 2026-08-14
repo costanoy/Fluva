@@ -13,8 +13,6 @@
 
 .top-bar-file {
   display: flex;
-  align-items: center;
-  gap: 8px;
   font-size: 16px;
   font-weight: 600;
   min-width: 0;
@@ -23,6 +21,16 @@
 .top-bar-file-text {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+
+.top-bar-file-row {
+  display: flex;
+  /* The icon sits on the filename's own baseline, not centered against the
+     page count sitting below it too — flex-end on just this row lines its
+     bottom edge up with the input's bottom edge. */
+  align-items: flex-end;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -54,7 +62,8 @@
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--color-neutral-500);
-  padding-left: 7px;
+  /* Lines up under the filename text, not the icon beside it (icon width + row gap). */
+  padding-left: 23px;
 }
 
 .top-bar-brand {
@@ -89,6 +98,25 @@
   position: relative;
   flex-shrink: 0;
   justify-self: end;
+}
+
+.lang-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  flex-shrink: 0;
+  background: var(--color-neutral-200);
+  border-radius: var(--radius-pill);
+}
+
+.lang-toggle-btn {
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 5px 9px;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .export-menu {
@@ -126,6 +154,20 @@
 .export-row:disabled {
   opacity: .5;
   cursor: not-allowed;
+}
+
+.export-badge {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  /* Amber, not the site's green accent — a badge that means "still rough
+     around the edges" reads oddly in the same color used everywhere else
+     for "done, confirmed, go ahead". */
+  color: #9A5B12;
+  background: #FBE4C0;
+  border-radius: 999px;
+  padding: 3px 7px;
 }
 
 .export-row-label {
@@ -209,6 +251,11 @@
     padding: 7px 10px;
     font-size: 13px;
     gap: 5px;
+  }
+
+  .lang-toggle-btn {
+    padding: 4px 7px;
+    font-size: 11.5px;
   }
 }
 

@@ -5,6 +5,7 @@ import { EditorCanvas } from './EditorCanvas';
 import { RightPanel } from './RightPanel';
 import { ThumbnailRail } from './ThumbnailRail';
 import { Toolbar } from './Toolbar';
+import { t } from '../i18n/translations';
 import '../styles/editing-screen.css';
 
 export function EditingScreen() {
@@ -37,7 +38,7 @@ export function EditingScreen() {
       {state.error && (
         <div className="error-banner">
           <span>{state.error}</span>
-          <button aria-label="Dispensar" onClick={actions.clearError}>
+          <button aria-label={t('home.dismiss')} onClick={actions.clearError}>
             <X size={14} strokeWidth={2.75} />
           </button>
         </div>

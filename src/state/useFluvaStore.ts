@@ -17,6 +17,7 @@ import { compressDocument, extractSelectedPages, splitByRanges, splitEveryPage, 
 import { baseNameFor, downloadBytes, exportAsDocx, exportAsImages, exportAsPdf, zipFiles, type ExportFormat } from '../pdf/exporters';
 import { DEFAULT_FAMILY_KEY, cleanFontName, familyByKey, matchSubstitute } from '../pdf/fonts';
 import { extractPageText, sampleRunColors, type SampledColors } from '../pdf/textExtract';
+import { getLang, setLang as setGlobalLang, t, type Lang } from '../i18n/translations';
 import {
   applySnapshot,
   snapshot,
@@ -32,6 +33,7 @@ import {
 } from './appTypes';
 
 const initialState: AppState = {
+  lang: getLang(),
   screen: 'empty',
   doc: emptyDocument(),
   spareSourceIds: [],
@@ -147,7 +149,7 @@ export function useFluvaStore() {
         set({ busy: null });
         return result;
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Algo deu errado.';
+        const message = err instanceof Error ? err.message : t('store.genericError');
         set({ busy: null, error: message });
         return null;
       }
@@ -306,18 +308,18 @@ export function useFluvaStore() {
         const rejected: string[] = [];
         for (const file of files) {
           if (!isAcceptedFile(file)) {
-            rejected.push(`${file.name} (formato não suportado)`);
+            rejected.push(t('store.rejectedFormat', { name: file.name }));
             continue;
           }
           if (file.size > MAX_FILE_BYTES) {
-            rejected.push(`${file.name} (${formatBytes(file.size)}, acima de 50MB)`);
+            rejected.push(t('store.rejectedSize', { name: file.name, size: formatBytes(file.size) }));
             continue;
           }
           accepted.push({ id: newId('q'), file, name: file.name, size: file.size, kind: fileKind(file) });
         }
         set((st) => ({
           queue: st.queue.concat(accepted),
-          error: rejected.length ? `Ignorado: ${rejected.join('; ')}` : null,
+          error: rejected.length ? t('store.ignored', { list: rejected.join('; ') }) : null,
         }));
       },
 
@@ -337,7 +339,7 @@ export function useFluvaStore() {
       openQueue: async () => {
         const queue = stateRef.current.queue;
         if (!queue.length) return;
-        await withBusy('Abrindo arquivos…', async (progress) => {
+        await withBusy(t('store.openingFiles'), async (progress) => {
           const sources: Record<string, SourceDoc> = {};
           const assets: Record<string, ImageAsset> = {};
           let pages: WorkPage[] = [];
@@ -361,7 +363,7 @@ export function useFluvaStore() {
             doc: { sources, assets, pages, watermark: defaultWatermark(), name, kind },
             spareSourceIds: [],
             queue: [],
-            toast: queue.length > 1 ? `${queue.length} arquivos juntados em um único documento.` : null,
+            toast: queue.length > 1 ? t('store.filesJoined', { count: queue.length }) : null,
             activePageIndex: 0,
             toolMode: null,
             selectedOverlayId: null,
@@ -389,7 +391,7 @@ export function useFluvaStore() {
       convertQueue: async (target: 'pdf' | 'png' | 'jpg') => {
         const queue = stateRef.current.queue;
         if (!queue.length) return;
-        await withBusy(`Convertendo para ${target.toUpperCase()}…`, async (progress) => {
+        await withBusy(t('store.convertingTo', { format: target.toUpperCase() }), async (progress) => {
           const outputs: Array<{ name: string; bytes: Uint8Array }> = [];
 
           for (let i = 0; i < queue.length; i++) {
@@ -425,7 +427,7 @@ export function useFluvaStore() {
           } else {
             zipFiles(outputs, `convertidos_${target}.zip`);
           }
-          set({ toast: `${outputs.length} arquivo(s) convertido(s) para ${target.toUpperCase()}.` });
+          set({ toast: t('store.filesConverted', { count: outputs.length, format: target.toUpperCase() }) });
         });
       },
 
@@ -439,6 +441,15 @@ export function useFluvaStore() {
       /** Switches between the home-adjacent screens (empty/beta) — no document
        * state to preserve or discard, so a plain UI-only navigation. */
       setScreen: (screen: Screen) => set({ screen }),
+
+      /** Also updates the module-level language mirror (see i18n/translations.ts)
+       * so code outside React — the pdf/ pipeline's own toasts and thrown
+       * errors — picks up the change too, not just components re-rendered
+       * through this state. */
+      setLang: (lang: Lang) => {
+        setGlobalLang(lang);
+        set({ lang });
+      },
 
       /** Renames the document — this is what every export filename is derived
        * from (see `baseNameFor`). Kept off the undo stack (`set`, not `mutate`)
@@ -503,7 +514,7 @@ export function useFluvaStore() {
             kind: 'text',
             x: page.width * 0.15,
             y: page.height * 0.7,
-            text: 'Novo texto',
+            text: t('store.newText'),
             fontKey: st.capturedFontKey ?? DEFAULT_FAMILY_KEY,
             size: 18,
             bold: false,
@@ -521,7 +532,7 @@ export function useFluvaStore() {
       addImage: async () => {
         const files = await pickFile('image/png,image/jpeg');
         if (!files.length) return;
-        await withBusy('Inserindo imagem…', async () => {
+        await withBusy(t('store.insertingImage'), async () => {
           const asset = await registerAsset(files[0]);
           const st = stateRef.current;
           const page = st.doc.pages[st.activePageIndex];
@@ -656,7 +667,7 @@ export function useFluvaStore() {
         const page = currentPage(st);
         if (!page) return;
         const pageId = page.id;
-        withBusy('Aplicando…', async () => {
+        withBusy(t('store.applying'), async () => {
           const [colors] = await sampleRunColors(st.doc, page, [bounds]);
           mutate((cur) => {
             const idx = cur.doc.pages.findIndex((p) => p.id === pageId);
@@ -709,12 +720,12 @@ export function useFluvaStore() {
        * the user started from happened to look like.
        */
       applyFontToMatchingRuns: (originalFont: string, fontKey: string, excludeRunId?: string) =>
-        withBusy('Procurando esta fonte no documento…', async () => {
+        withBusy(t('store.findingFont'), async () => {
           const st = stateRef.current;
           const target = cleanFontName(originalFont).toLowerCase();
           const familyLabel = familyByKey(fontKey).label;
           if (!target) {
-            set({ toast: 'Não foi possível identificar essa fonte.' });
+            set({ toast: t('store.fontNotIdentified') });
             return 0;
           }
 
@@ -734,7 +745,7 @@ export function useFluvaStore() {
 
           const totalMatches = perPage.reduce((n, p) => n + p.matches.length, 0);
           if (!totalMatches) {
-            set({ toast: 'Nenhum outro texto com essa fonte foi encontrado no documento.' });
+            set({ toast: t('store.noOtherFontFound') });
             return 0;
           }
 
@@ -753,7 +764,7 @@ export function useFluvaStore() {
             return { doc: { ...cur.doc, pages } };
           });
 
-          set({ toast: `${totalMatches} texto(s) atualizado(s) para ${familyLabel}.` });
+          set({ toast: t('store.textsUpdated', { count: totalMatches, font: familyLabel }) });
           return totalMatches;
         }),
 
@@ -768,7 +779,7 @@ export function useFluvaStore() {
       uploadWatermarkImage: async () => {
         const files = await pickFile('image/png,image/jpeg');
         if (!files.length) return;
-        await withBusy('Carregando marca d\'água…', async () => {
+        await withBusy(t('store.loadingWatermark'), async () => {
           const asset = await registerAsset(files[0]);
           mutate((st) => ({
             doc: {
@@ -815,7 +826,7 @@ export function useFluvaStore() {
       addFilesToMerge: async () => {
         const files = await pickFile('application/pdf', true);
         if (!files.length) return;
-        await withBusy('Carregando PDFs…', async (progress) => {
+        await withBusy(t('store.loadingPdfs'), async (progress) => {
           const sources: Record<string, SourceDoc> = {};
           const ids: string[] = [];
           for (let i = 0; i < files.length; i++) {
@@ -860,7 +871,7 @@ export function useFluvaStore() {
             spareSourceIds: st.spareSourceIds.filter((id) => !st.mergeSelected.includes(id)),
             mergeSelected: [],
             toolMode: null,
-            toast: `${count} arquivo(s) juntados — ${added.length} páginas adicionadas.`,
+            toast: t('store.filesJoinedCount', { count, pages: added.length }),
           };
         }),
 
@@ -903,7 +914,7 @@ export function useFluvaStore() {
        * the same four operations the center preview is describing live. */
       runSplit: async () => {
         const st = stateRef.current;
-        await withBusy('Dividindo…', async () => {
+        await withBusy(t('store.dividing'), async () => {
           const baseName = baseNameFor(st.doc);
           let results: Awaited<ReturnType<typeof splitEveryPage>> = [];
           let message = '';
@@ -911,28 +922,28 @@ export function useFluvaStore() {
           if (st.splitMode === 'range') {
             if (st.splitRangeSubMode === 'auto') {
               results = await splitIntoParts(st.doc, baseName, st.splitAutoParts);
-              message = `Dividido em ${results.length} arquivo(s).`;
+              message = t('store.dividedInto', { count: results.length });
             } else {
               if (!st.splitCustomRanges.length) {
-                set({ toast: 'Adicione pelo menos um intervalo.' });
+                set({ toast: t('store.addAtLeastOneInterval') });
                 return;
               }
               results = await splitByRanges(st.doc, baseName, st.splitCustomRanges);
-              message = `Dividido em ${results.length} arquivo(s).`;
+              message = t('store.dividedInto', { count: results.length });
             }
           } else {
             if (st.splitPagesSubMode === 'all') {
               results = await splitEveryPage(st.doc, baseName);
-              message = `${results.length} PDFs gerados, um por página.`;
+              message = t('store.pdfsPerPage', { count: results.length });
             } else {
               if (!st.splitSelectedPages.length) {
-                set({ toast: 'Selecione ao menos uma página.' });
+                set({ toast: t('store.selectAtLeastOnePage') });
                 return;
               }
               results = await extractSelectedPages(st.doc, baseName, st.splitSelectedPages, st.splitMergeSelected);
               message = st.splitMergeSelected
-                ? 'Páginas selecionadas mescladas em um PDF.'
-                : `${results.length} PDFs gerados a partir das páginas selecionadas.`;
+                ? t('store.pagesMergedIntoOne')
+                : t('store.pdfsFromSelection', { count: results.length });
             }
           }
 
@@ -946,7 +957,7 @@ export function useFluvaStore() {
 
       runCompress: async () => {
         const st = stateRef.current;
-        await withBusy('Comprimindo…', async (progress) => {
+        await withBusy(t('store.compressing'), async (progress) => {
           const result = await compressDocument(st.doc, st.compressLevel, progress);
           set({
             compressOutcome: {
@@ -977,21 +988,25 @@ export function useFluvaStore() {
         const st = stateRef.current;
         const base = baseNameFor(st.doc);
         set({ exportOpen: false });
-        await withBusy('Exportando…', async (progress) => {
+        await withBusy(t('store.exporting'), async (progress) => {
           if (format === 'pdf') {
             await exportAsPdf(st.doc, base);
-            set({ toast: `${base}.pdf exportado.` });
+            set({ toast: t('store.pdfExported', { name: base }) });
           } else if (format === 'png' || format === 'jpg') {
             await exportAsImages(st.doc, base, format, progress);
             const multi = st.doc.pages.length > 1;
-            set({ toast: multi ? `${st.doc.pages.length} imagens exportadas em .zip.` : `${base}.${format} exportado.` });
+            set({
+              toast: multi
+                ? t('store.imagesExported', { count: st.doc.pages.length })
+                : t('store.imageExported', { name: base, format }),
+            });
           } else {
             const { paragraphs, images } = await exportAsDocx(st.doc, base, progress);
-            const imageNote = images ? ` e ${images} imagem(ns)` : '';
+            const imageNote = images ? t('store.andImages', { count: images }) : '';
             set({
               toast: paragraphs
-                ? `${base}.docx exportado com ${paragraphs} parágrafos de texto${imageNote}.`
-                : `${base}.docx exportado, mas nenhum texto foi encontrado no PDF.`,
+                ? t('store.docxExported', { name: base, count: paragraphs, imageNote })
+                : t('store.docxExportedNoText', { name: base }),
             });
           }
           // Deliberately NOT clearing `dirty` here. An export is a copy, not a
@@ -1019,7 +1034,7 @@ export function useFluvaStore() {
       captureFontFromElement: (el: Element) => {
         const family = getComputedStyle(el).fontFamily;
         const match = matchSubstitute(family);
-        set({ capturedFontKey: match.family.key, fontPickerActive: false, toast: `Fonte capturada: ${match.family.label}` });
+        set({ capturedFontKey: match.family.key, fontPickerActive: false, toast: t('store.fontCaptured', { font: match.family.label }) });
       },
 
       undo,

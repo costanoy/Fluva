@@ -1,18 +1,19 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { Check, FilePlus2, Plus, X } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { PageView } from '../components/PageView';
 import { displaySize } from '../pdf/model';
 import { Button } from '../components/Button';
+import { usePointerReorder } from '../hooks/usePointerReorder';
+import { t } from '../i18n/translations';
 import '../styles/thumbnail-rail.css';
 
 const THUMB_MAX = 104;
 
 export function ThumbnailRail() {
   const { state, actions } = useApp();
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
   const frameRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const { dragIndex, overIndex, itemProps } = usePointerReorder(actions.movePage);
 
   if (state.toolMode === 'merge') return <MergeSourceList />;
 
@@ -23,28 +24,14 @@ export function ThumbnailRail() {
         const scale = THUMB_MAX / Math.max(shown.width, shown.height);
         const isActive = index === state.activePageIndex;
         const isDropTarget = overIndex === index && dragIndex !== null && dragIndex !== index;
+        const { style: reorderStyle, ...reorderProps } = itemProps(index);
 
         return (
           <div
             className={`thumb-item${isDropTarget ? ' thumb-item-drop' : ''}`}
             key={page.id}
-            draggable
-            onDragStart={() => setDragIndex(index)}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOverIndex(index);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (dragIndex !== null && dragIndex !== index) actions.movePage(dragIndex, index);
-              setDragIndex(null);
-              setOverIndex(null);
-            }}
-            onDragEnd={() => {
-              setDragIndex(null);
-              setOverIndex(null);
-            }}
-            style={{ opacity: dragIndex === index ? 0.4 : 1 }}
+            {...reorderProps}
+            style={{ ...reorderStyle, opacity: dragIndex === index ? 0.4 : 1 }}
           >
             <div
               ref={(el) => {
@@ -53,7 +40,7 @@ export function ThumbnailRail() {
               className="thumb-frame"
               role="button"
               tabIndex={0}
-              aria-label={`Página ${index + 1}`}
+              aria-label={t('rail.pageAria', { n: index + 1 })}
               aria-current={isActive}
               style={{ borderColor: isActive ? 'var(--color-accent)' : 'var(--color-neutral-300)' }}
               onClick={() => actions.setActivePage(index)}
@@ -79,7 +66,8 @@ export function ThumbnailRail() {
               {state.doc.pages.length > 1 && (
                 <button
                   className="thumb-delete"
-                  aria-label={`Excluir página ${index + 1}`}
+                  aria-label={t('rail.deletePageAria', { n: index + 1 })}
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     actions.deletePage(index);
@@ -89,12 +77,12 @@ export function ThumbnailRail() {
                 </button>
               )}
             </div>
-            <div className="thumb-page-label">pág. {index + 1}</div>
+            <div className="thumb-page-label">{t('rail.pageLabel', { n: index + 1 })}</div>
           </div>
         );
       })}
 
-      <button className="thumb-add" onClick={actions.addBlankPage} aria-label="Adicionar página em branco" title="Adicionar página em branco">
+      <button className="thumb-add" onClick={actions.addBlankPage} aria-label={t('rail.addBlankPage')} title={t('rail.addBlankPage')}>
         <Plus size={18} strokeWidth={2.75} />
       </button>
     </div>
@@ -108,9 +96,9 @@ function MergeSourceList() {
 
   return (
     <div className="thumb-rail thumb-rail-merge">
-      <div className="thumb-rail-label">Arquivos para juntar</div>
+      <div className="thumb-rail-label">{t('rail.mergeFilesLabel')}</div>
 
-      {sources.length === 0 && <div className="thumb-rail-empty">Nenhum outro PDF carregado ainda.</div>}
+      {sources.length === 0 && <div className="thumb-rail-empty">{t('rail.noOtherPdf')}</div>}
 
       {sources.map((source) => {
         const checked = state.mergeSelected.includes(source.id);
@@ -129,7 +117,7 @@ function MergeSourceList() {
             </span>
             <span className="merge-file-text">
               <span className="merge-file-name">{source.name}</span>
-              <span className="merge-file-meta">{source.pageCount} pág.</span>
+              <span className="merge-file-meta">{t('merge.pages', { count: source.pageCount })}</span>
             </span>
           </button>
         );
@@ -137,7 +125,7 @@ function MergeSourceList() {
 
       <Button block style={{ marginTop: 10, justifyContent: 'center' }} onClick={actions.addFilesToMerge} disabled={!!state.busy}>
         <FilePlus2 size={15} strokeWidth={2.75} />
-        Adicionar PDFs
+        {t('rail.addPdfs')}
       </Button>
     </div>
   );

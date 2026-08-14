@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { t } from '../i18n/translations';
 import '../styles/dialog.css';
 
 /** A simple centered modal — backdrop click, the close button, or Escape all dismiss it. */
@@ -15,7 +16,7 @@ export function Dialog({ title, children, onClose }: { title?: string; children:
   return (
     <div className="dialog-backdrop" onClick={onClose}>
       <div className="dialog-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <button className="dialog-close" onClick={onClose} aria-label="Fechar">
+        <button className="dialog-close" onClick={onClose} aria-label={t('topbar.close')}>
           <X size={16} strokeWidth={2.75} />
         </button>
         {title && <h6 className="dialog-title">{title}</h6>}

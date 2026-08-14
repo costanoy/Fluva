@@ -5,6 +5,7 @@ import { familyByKey } from '../pdf/fonts';
 import { safeSetPointerCapture, screenDeltaToPage } from './OverlayLayer';
 import type { Rect, WorkPage } from '../pdf/model';
 import { useApp } from '../state/AppContext';
+import { t } from '../i18n/translations';
 
 /** How far the pointer has to move, in screen pixels, before a press on the
  * move handle counts as a drag rather than a plain tap. */
@@ -182,8 +183,8 @@ export function TextRunPreview({ page, scale }: { page: WorkPage; scale: number 
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         onClick={stopClick}
-        title="Segure e arraste para mover"
-        aria-label="Mover texto"
+        title={t('run.moveHandleTitle')}
+        aria-label={t('run.moveHandleAria')}
         style={{
           position: 'absolute',
           // Anchored to the original run's own corner (not the draft's), plus

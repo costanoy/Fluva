@@ -3,6 +3,7 @@ import { Button } from '../../components/Button';
 import { useApp } from '../../state/AppContext';
 import { SUBSTITUTE_FAMILIES } from '../../pdf/fonts';
 import type { Overlay } from '../../pdf/model';
+import { t } from '../../i18n/translations';
 
 const SHAPE_COLORS = ['#1D9E75', '#D85A30', '#534AB7', '#2C2C2A', '#FFFFFF'];
 const TEXT_COLORS = ['#2C2C2A', '#1D9E75', '#D85A30', '#534AB7', '#FFFFFF'];
@@ -16,12 +17,12 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
   if (overlay.kind === 'text') {
     return (
       <>
-        <h6 style={{ color: 'var(--color-accent-700)' }}>Texto</h6>
+        <h6 style={{ color: 'var(--color-accent-700)' }}>{t('overlay.textTitle')}</h6>
 
-        <div className="panel-label">Conteúdo</div>
+        <div className="panel-label">{t('overlay.content')}</div>
         <textarea className="text-input" rows={6} value={overlay.text} onChange={(e) => update({ text: e.target.value })} />
 
-        <div className="panel-label">Fonte</div>
+        <div className="panel-label">{t('overlay.font')}</div>
         <div className="font-option-list">
           {SUBSTITUTE_FAMILIES.map((f) => (
             <button
@@ -35,7 +36,7 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
           ))}
         </div>
 
-        <div className="panel-label">Tamanho</div>
+        <div className="panel-label">{t('overlay.size')}</div>
         <div className="panel-row">
           <Button icon onClick={() => update({ size: Math.max(4, overlay.size - 2) })}>−</Button>
           <input
@@ -67,7 +68,7 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
           </button>
         </div>
 
-        <div className="panel-label">Cor</div>
+        <div className="panel-label">{t('overlay.color')}</div>
         <Swatches colors={TEXT_COLORS} value={overlay.color} onChange={(color) => update({ color })} />
 
         <RotationSlider value={overlay.rotation} onChange={(rotation) => actions.updateOverlay(overlay.id, { rotation }, false)} onCommit={(rotation) => update({ rotation })} />
@@ -78,12 +79,12 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
             this since they have no in-place text to protect. */}
         <Button block onClick={() => actions.setMovingOverlay(overlay.id)}>
           <Move size={16} strokeWidth={2.75} />
-          Mover texto
+          {t('overlay.moveText')}
         </Button>
 
         <Button block onClick={() => actions.removeOverlay(overlay.id)}>
           <Trash2 size={16} strokeWidth={2.75} />
-          Remover texto
+          {t('overlay.removeText')}
         </Button>
       </>
     );
@@ -92,12 +93,12 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
   if (overlay.kind === 'image') {
     return (
       <>
-        <h6 style={{ color: 'var(--color-accent-2-700)' }}>Imagem</h6>
-        <div className="panel-note">Arraste na página para mover, ou use a alça no canto para redimensionar.</div>
+        <h6 style={{ color: 'var(--color-accent-2-700)' }}>{t('overlay.imageTitle')}</h6>
+        <div className="panel-note">{t('overlay.imageNote')}</div>
 
-        <div className="panel-label">Tamanho</div>
+        <div className="panel-label">{t('overlay.size')}</div>
         <div className="panel-row">
-          <span className="panel-unit">L</span>
+          <span className="panel-unit">{t('overlay.width')}</span>
           <input
             type="number"
             className="number-input"
@@ -108,7 +109,7 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
               update({ width, height: width * (overlay.height / overlay.width) });
             }}
           />
-          <span className="panel-unit">A</span>
+          <span className="panel-unit">{t('overlay.height')}</span>
           <input
             type="number"
             className="number-input"
@@ -120,13 +121,13 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
 
         <Button block onClick={() => update({ rotation: (overlay.rotation + 90) % 360 })}>
           <RotateCw size={16} strokeWidth={2.75} />
-          Girar 90°
+          {t('overlay.rotate90')}
         </Button>
         <RotationSlider value={overlay.rotation} onChange={(rotation) => actions.updateOverlay(overlay.id, { rotation }, false)} onCommit={(rotation) => update({ rotation })} />
 
         <Button block onClick={() => actions.removeOverlay(overlay.id)}>
           <Trash2 size={16} strokeWidth={2.75} />
-          Remover imagem
+          {t('overlay.removeImage')}
         </Button>
       </>
     );
@@ -135,21 +136,21 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
   if (overlay.kind === 'shape') {
     return (
       <>
-        <h6 style={{ color: 'var(--color-accent-700)' }}>Forma</h6>
+        <h6 style={{ color: 'var(--color-accent-700)' }}>{t('overlay.shapeTitle')}</h6>
 
         {isPending && (
           <Button variant="primary" block style={{ marginTop: 0 }} onClick={actions.confirmPendingOverlay}>
             <Check size={16} strokeWidth={2.75} />
-            Confirmar colocação
+            {t('overlay.confirmPlacement')}
           </Button>
         )}
 
-        <div className="panel-label" style={{ marginTop: isPending ? undefined : 6 }}>Formato</div>
+        <div className="panel-label" style={{ marginTop: isPending ? undefined : 6 }}>{t('overlay.shapeFormat')}</div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             className="shape-type-btn"
-            aria-label="Retângulo"
-            title="Retângulo"
+            aria-label={t('overlay.rectangle')}
+            title={t('overlay.rectangle')}
             style={{ background: overlay.shape === 'rect' ? 'var(--color-accent-100)' : undefined, borderColor: overlay.shape === 'rect' ? 'var(--color-accent)' : undefined }}
             onClick={() => update({ shape: 'rect' })}
           >
@@ -157,8 +158,8 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
           </button>
           <button
             className="shape-type-btn"
-            aria-label="Círculo"
-            title="Círculo"
+            aria-label={t('overlay.circle')}
+            title={t('overlay.circle')}
             style={{ background: overlay.shape === 'circle' ? 'var(--color-accent-100)' : undefined, borderColor: overlay.shape === 'circle' ? 'var(--color-accent)' : undefined }}
             onClick={() => update({ shape: 'circle' })}
           >
@@ -166,20 +167,20 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
           </button>
         </div>
 
-        <div className="panel-label">Cor</div>
+        <div className="panel-label">{t('overlay.color')}</div>
         <Swatches colors={SHAPE_COLORS} value={overlay.color} onChange={(color) => update({ color })} />
 
-        <div className="panel-label">Tamanho</div>
+        <div className="panel-label">{t('overlay.size')}</div>
         <div className="panel-row">
-          <span className="panel-unit">L</span>
+          <span className="panel-unit">{t('overlay.width')}</span>
           <input type="number" className="number-input" style={{ flex: 1 }} value={Math.round(overlay.width)} onChange={(e) => update({ width: Math.max(8, Number(e.target.value)) })} />
-          <span className="panel-unit">A</span>
+          <span className="panel-unit">{t('overlay.height')}</span>
           <input type="number" className="number-input" style={{ flex: 1 }} value={Math.round(overlay.height)} onChange={(e) => update({ height: Math.max(8, Number(e.target.value)) })} />
         </div>
 
         <Button block onClick={() => actions.removeOverlay(overlay.id)}>
           <Trash2 size={16} strokeWidth={2.75} />
-          Remover forma
+          {t('overlay.removeShape')}
         </Button>
       </>
     );
@@ -187,11 +188,11 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
 
   return (
     <>
-      <h6>Cobertura</h6>
-      <div className="panel-note">Retângulo que cobre o texto original substituído.</div>
+      <h6>{t('overlay.coverTitle')}</h6>
+      <div className="panel-note">{t('overlay.coverNote')}</div>
       <Button block onClick={() => actions.removeOverlay(overlay.id)}>
         <Trash2 size={16} strokeWidth={2.75} />
-        Remover cobertura
+        {t('overlay.removeCover')}
       </Button>
     </>
   );
@@ -217,17 +218,17 @@ function Swatches({ colors, value, onChange }: { colors: string[]; value: string
         <button
           key={c}
           className="swatch"
-          aria-label={`Cor ${c}`}
+          aria-label={t('overlay.colorAria', { hex: c })}
           style={{ background: c, outline: c === value ? '2px solid var(--color-accent)' : 'none', outlineOffset: 2 }}
           onClick={() => onChange(c)}
         />
       ))}
-      <label className="swatch swatch-custom" style={{ background: value }} title="Escolher cor (RGB)">
+      <label className="swatch swatch-custom" style={{ background: value }} title={t('overlay.pickColorTitle')}>
         <Palette size={13} strokeWidth={2.5} color={isLight(value) ? '#2C2C2A' : '#FFFFFF'} />
         <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000'} onChange={(e) => onChange(e.target.value)} />
       </label>
       {hasEyeDropper && (
-        <button className="swatch swatch-eyedrop" title="Capturar cor da tela" aria-label="Capturar cor da tela" onClick={pickFromScreen}>
+        <button className="swatch swatch-eyedrop" title={t('overlay.pickScreenColor')} aria-label={t('overlay.pickScreenColor')} onClick={pickFromScreen}>
           <Pipette size={13} strokeWidth={2.5} />
         </button>
       )}
@@ -247,7 +248,7 @@ function isLight(hex: string): boolean {
 function RotationSlider({ value, onChange, onCommit }: { value: number; onChange: (v: number) => void; onCommit: (v: number) => void }) {
   return (
     <>
-      <div className="panel-label">Rotação: {Math.round(value)}°</div>
+      <div className="panel-label">{t('overlay.rotation', { deg: Math.round(value) })}</div>
       <input
         type="range"
         min={-180}

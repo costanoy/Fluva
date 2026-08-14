@@ -6,6 +6,7 @@ import { OverlayPanel } from './panels/OverlayPanel';
 import { TextRunPanel } from './panels/TextRunPanel';
 import { CompressPanel, MergePanel, ReorderPanel, WatermarkPanel } from './panels/ToolPanels';
 import { SplitPanel } from './panels/SplitPanel';
+import { t } from '../i18n/translations';
 import '../styles/panel.css';
 
 export function RightPanel() {
@@ -57,13 +58,10 @@ export function RightPanel() {
           {selectedOverlay ? (
             isMovingSelected ? (
               <>
-                <h6 style={{ color: 'var(--color-accent-700)' }}>Movendo texto</h6>
-                <div className="panel-note">
-                  Clique em qualquer parte do texto na página e arraste para reposicioná-lo. Pressione Enter ou clique
-                  em Ok quando terminar.
-                </div>
+                <h6 style={{ color: 'var(--color-accent-700)' }}>{t('panel.movingTextTitle')}</h6>
+                <div className="panel-note">{t('panel.movingTextNote')}</div>
                 <Button variant="primary" block onClick={() => actions.setMovingOverlay(null)}>
-                  Ok
+                  {t('panel.ok')}
                 </Button>
               </>
             ) : (
@@ -73,12 +71,12 @@ export function RightPanel() {
             <TextRunPanel />
           ) : (
             <>
-              <h6 style={{ marginBottom: 2, color: 'var(--color-neutral-600)' }}>Adicionar à página {state.activePageIndex + 1}</h6>
+              <h6 style={{ marginBottom: 2, color: 'var(--color-neutral-600)' }}>{t('panel.addToPage', { n: state.activePageIndex + 1 })}</h6>
 
               <div className="panel-group">
                 <Button style={{ ...panelBtn, marginTop: 0 }} onClick={actions.addText}>
                   <Type size={19} strokeWidth={2.75} color="var(--color-accent)" />
-                  Adicionar texto
+                  {t('panel.addText')}
                 </Button>
                 <button
                   ref={pickerTriggerRef}
@@ -87,28 +85,28 @@ export function RightPanel() {
                 >
                   <Pipette size={14} strokeWidth={2.5} />
                   {state.fontPickerActive
-                    ? 'Clique em qualquer texto do site (Esc para cancelar)'
+                    ? t('panel.captureFontActive')
                     : state.capturedFontKey
-                      ? 'Fonte capturada — clique para capturar outra'
-                      : 'Captar fonte de um texto existente'}
+                      ? t('panel.captureFontCaptured')
+                      : t('panel.captureFontIdle')}
                 </button>
               </div>
 
               <Button block style={panelBtn} onClick={actions.addImage} disabled={!!state.busy}>
                 <ImageIcon size={19} strokeWidth={2.75} color="var(--color-accent-2-700)" />
-                Adicionar imagem
+                {t('panel.addImage')}
               </Button>
 
               <Button block style={panelBtn} onClick={actions.addShape}>
                 <Square size={19} strokeWidth={2.75} />
-                Adicionar forma
+                {t('panel.addShape')}
               </Button>
 
               <div className="panel-divider" />
 
               <Button block style={panelBtn} onClick={actions.rotateActivePage}>
                 <RotateCw size={19} strokeWidth={2.75} />
-                Girar página 90°
+                {t('panel.rotatePage')}
               </Button>
 
               <Button
@@ -118,12 +116,12 @@ export function RightPanel() {
                 onClick={() => actions.deletePage(state.activePageIndex)}
               >
                 <Trash2 size={19} strokeWidth={2.75} />
-                Excluir página
+                {t('panel.deletePage')}
               </Button>
 
               {state.doc.kind === 'pdf' && (
                 <div className="panel-note panel-note-quiet">
-                  Clique em um trecho de texto na página para substituí-lo.
+                  {t('panel.clickToReplace')}
                 </div>
               )}
             </>

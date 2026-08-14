@@ -1,5 +1,6 @@
 import { openWithPdfJs } from './pdfjs';
 import { newId, type ImageAsset, type SourceDoc, type WorkPage } from './model';
+import { t } from '../i18n/translations';
 
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
@@ -33,7 +34,7 @@ export async function readImageSize(bytes: Uint8Array, mime: string): Promise<{ 
     return await new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-      img.onerror = () => reject(new Error('Não foi possível ler a imagem.'));
+      img.onerror = () => reject(new Error(t('loader.imageReadError')));
       img.src = url;
     });
   } finally {
@@ -50,7 +51,7 @@ export interface LoadedFile {
 
 export async function loadFile(file: File): Promise<LoadedFile> {
   if (file.size > MAX_FILE_BYTES) {
-    throw new Error(`"${file.name}" tem ${formatBytes(file.size)}. O limite é 50MB.`);
+    throw new Error(t('loader.fileTooLarge', { name: file.name, size: formatBytes(file.size) }));
   }
   const bytes = await readFileBytes(file);
   const kind = fileKind(file);
@@ -66,7 +67,7 @@ async function loadPdfFile(file: File, bytes: Uint8Array): Promise<LoadedFile> {
     // user is a guess, and a wrong guess is worse than no guess at all.
     console.error(`[Fluva] pdf.js failed to open "${file.name}":`, e);
     const detail = e instanceof Error ? e.message : String(e);
-    throw new Error(`Não foi possível abrir "${file.name}": ${detail}`);
+    throw new Error(t('loader.pdfOpenError', { name: file.name, detail }));
   }
   const pdf = opened.doc;
 

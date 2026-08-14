@@ -5,6 +5,7 @@ import { buildPdf } from './build';
 import { canvasToBlob, rasterizePdf } from './render';
 import { extractPageImages, extractPageText, groupIntoLines } from './textExtract';
 import { stripExtension } from './loader';
+import { t } from '../i18n/translations';
 
 export type ExportFormat = 'pdf' | 'png' | 'jpg' | 'docx';
 
@@ -100,7 +101,7 @@ export async function exportAsDocx(
     if (!lines.length) {
       paragraphs.push(
         new Paragraph({
-          children: [new TextRun({ text: `[Página ${i + 1} não contém texto extraível]`, italics: true, color: '6E6E67' })],
+          children: [new TextRun({ text: t('export.docxNoExtractableText', { n: i + 1 }), italics: true, color: '6E6E67' })],
         }),
       );
     } else {

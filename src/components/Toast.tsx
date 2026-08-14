@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { t } from '../i18n/translations';
 
 export function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   return (
@@ -24,7 +25,7 @@ export function Toast({ message, onDismiss }: { message: string; onDismiss: () =
       <span>{message}</span>
       <button
         onClick={onDismiss}
-        aria-label="Fechar"
+        aria-label={t('topbar.close')}
         style={{ border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', display: 'flex', flexShrink: 0, padding: 0 }}
       >
         <X size={14} strokeWidth={2.75} />

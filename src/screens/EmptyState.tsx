@@ -4,6 +4,7 @@ import { Button } from '../components/Button';
 import { Footer } from '../components/Footer';
 import { useApp } from '../state/AppContext';
 import { formatBytes } from '../pdf/loader';
+import { t } from '../i18n/translations';
 import '../styles/empty-state.css';
 
 const CONVERT_TARGETS: Array<{ key: 'pdf' | 'png' | 'jpg'; label: string }> = [
@@ -32,6 +33,7 @@ export function EmptyState() {
 
   return (
     <div className="empty-state">
+      <h1 className="sr-only">{t('home.pageTitle')}</h1>
       <div className="empty-state-inner">
         <div className="empty-state-content">
           <div
@@ -55,14 +57,14 @@ export function EmptyState() {
             <div className="dropzone-icon">
               <Upload size={20} strokeWidth={2.75} color="var(--color-accent)" />
             </div>
-            <h4 style={{ textAlign: 'center' }}>Arraste seus arquivos aqui ou clique para selecionar</h4>
-            <div className="dropzone-sub">PDF · PNG · JPG — até 50MB por arquivo</div>
+            <h4 style={{ textAlign: 'center' }}>{t('home.dropzoneTitle')}</h4>
+            <div className="dropzone-sub">{t('home.dropzoneSub')}</div>
           </div>
 
           {state.error && (
             <div className="inline-error">
               <span>{state.error}</span>
-              <button className="icon-btn-plain" aria-label="Dispensar" onClick={actions.clearError}>
+              <button className="icon-btn-plain" aria-label={t('home.dismiss')} onClick={actions.clearError}>
                 <X size={14} strokeWidth={2.75} />
               </button>
             </div>
@@ -79,7 +81,7 @@ export function EmptyState() {
                   )}
                   <span className="pending-row-name">{item.name}</span>
                   <span className="pending-row-size">{formatBytes(item.size)}</span>
-                  <button className="icon-btn-plain" aria-label={`Remover ${item.name}`} onClick={() => actions.removeQueued(item.id)}>
+                  <button className="icon-btn-plain" aria-label={t('home.remove', { name: item.name })} onClick={() => actions.removeQueued(item.id)}>
                     <X size={16} strokeWidth={2.75} />
                   </button>
                 </div>
@@ -89,35 +91,35 @@ export function EmptyState() {
                 {!converting ? (
                   <div style={{ display: 'flex', gap: 10 }}>
                     <Button variant="primary" style={{ flex: 1, justifyContent: 'center' }} onClick={actions.openQueue} disabled={!!state.busy}>
-                      Editar
+                      {t('home.edit')}
                     </Button>
                     <Button style={{ flex: 1, justifyContent: 'center' }} onClick={() => setConverting(true)} disabled={!!state.busy}>
-                      Alterar formato
+                      {t('home.changeFormat')}
                     </Button>
                   </div>
                 ) : (
                   <>
                     <div className="batch-format-box">
-                      <div className="batch-format-label">Converter todos para</div>
+                      <div className="batch-format-label">{t('home.convertAllTo')}</div>
                       <div className="batch-format-chips">
-                        {CONVERT_TARGETS.map((t) => (
+                        {CONVERT_TARGETS.map((opt) => (
                           <button
-                            key={t.key}
+                            key={opt.key}
                             className="batch-format-chip"
                             style={{
-                              background: t.key === target ? 'var(--color-accent)' : 'transparent',
-                              color: t.key === target ? 'var(--color-bg)' : 'var(--color-text)',
+                              background: opt.key === target ? 'var(--color-accent)' : 'transparent',
+                              color: opt.key === target ? 'var(--color-bg)' : 'var(--color-text)',
                             }}
-                            onClick={() => setTarget(t.key)}
+                            onClick={() => setTarget(opt.key)}
                           >
-                            {t.label}
+                            {opt.label}
                           </button>
                         ))}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 10 }}>
                       <Button style={{ flex: 1, justifyContent: 'center' }} onClick={() => setConverting(false)}>
-                        Cancelar
+                        {t('home.cancel')}
                       </Button>
                       <Button
                         variant="primary"
@@ -128,7 +130,7 @@ export function EmptyState() {
                           setConverting(false);
                         }}
                       >
-                        Converter e baixar
+                        {t('home.convertAndDownload')}
                       </Button>
                     </div>
                   </>

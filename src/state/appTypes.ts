@@ -2,6 +2,7 @@ import type { DocumentState, WatermarkConfig, WorkPage } from '../pdf/model';
 import type { CompressLevel } from '../pdf/ops';
 import type { ExportFormat } from '../pdf/exporters';
 import type { TextItem } from '../pdf/textExtract';
+import type { Lang } from '../i18n/translations';
 
 export type Screen = 'empty' | 'editing' | 'beta';
 export type ToolMode = 'merge' | 'split' | 'compress' | 'watermark' | 'reorder' | null;
@@ -60,6 +61,7 @@ export interface HistorySnapshot {
 }
 
 export interface AppState {
+  lang: Lang;
   screen: Screen;
   doc: DocumentState;
   /** Source ids that are loaded and available to merge but not currently in `doc.pages`. */

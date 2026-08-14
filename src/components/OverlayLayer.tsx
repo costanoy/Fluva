@@ -15,6 +15,7 @@ import type { ImageAsset, Overlay, WorkPage } from '../pdf/model';
 import { TEXT_LINE_HEIGHT } from '../pdf/build';
 import { familyByKey } from '../pdf/fonts';
 import { useApp } from '../state/AppContext';
+import { t } from '../i18n/translations';
 
 /** Height a text overlay occupies, in points. */
 export function textOverlayHeight(overlay: Extract<Overlay, { kind: 'text' }>): number {
@@ -410,8 +411,8 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
             onPointerUp={handleMoveHandlePointerUp}
             onPointerCancel={handleMoveHandlePointerUp}
             onClick={(e) => e.stopPropagation()}
-            title="Segure e arraste para mover"
-            aria-label="Mover texto"
+            title={t('run.moveHandleTitle')}
+            aria-label={t('run.moveHandleAria')}
             style={{
               position: 'absolute',
               right: -14,

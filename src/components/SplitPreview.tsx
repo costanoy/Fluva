@@ -4,6 +4,7 @@ import { useApp } from '../state/AppContext';
 import { PageView } from './PageView';
 import { displaySize } from '../pdf/model';
 import type { AppState, SplitRangeItem } from '../state/appTypes';
+import { t } from '../i18n/translations';
 import '../styles/split-preview.css';
 
 const THUMB_MAX = 150;
@@ -30,7 +31,7 @@ function computeGroups(state: AppState, total: number): (PageGroup | null)[] {
       for (let i = 0; i < n; i++) {
         const count = base + (i < extra ? 1 : 0);
         const color = GROUP_COLORS[i % GROUP_COLORS.length];
-        for (let p = cursor; p < cursor + count; p++) groups[p] = { color, label: `Arquivo ${i + 1}` };
+        for (let p = cursor; p < cursor + count; p++) groups[p] = { color, label: t('split.file', { n: i + 1 }) };
         cursor += count;
       }
     } else {
@@ -39,16 +40,16 @@ function computeGroups(state: AppState, total: number): (PageGroup | null)[] {
         const to = Math.max(1, Math.min(total, Math.max(range.start, range.end)));
         const color = GROUP_COLORS[i % GROUP_COLORS.length];
         for (let p = from - 1; p < to; p++) {
-          if (!groups[p]) groups[p] = { color, label: `Intervalo ${i + 1}` };
+          if (!groups[p]) groups[p] = { color, label: t('split.interval', { n: i + 1 }) };
         }
       });
     }
   } else {
     if (state.splitPagesSubMode === 'all') {
-      for (let p = 0; p < total; p++) groups[p] = { color: 'var(--color-neutral-500)', label: 'arquivo próprio' };
+      for (let p = 0; p < total; p++) groups[p] = { color: 'var(--color-neutral-500)', label: t('split.ownFileLabel') };
     } else {
       const color = GROUP_COLORS[0];
-      const label = state.splitMergeSelected ? 'mesclada' : 'arquivo próprio';
+      const label = state.splitMergeSelected ? t('split.mergedLabel') : t('split.ownFileLabel');
       for (const pageNumber of state.splitSelectedPages) {
         groups[pageNumber - 1] = { color, label };
       }
@@ -65,19 +66,19 @@ function describeOutcome(state: AppState, total: number): string {
       const base = Math.floor(total / n);
       const extra = total % n;
       const sizes = Array.from({ length: n }, (_, i) => base + (i < extra ? 1 : 0)).filter((c) => c > 0);
-      return `${total} página(s) divididas em ${sizes.length} arquivo(s): ${sizes.join('+')} página(s).`;
+      return t('split.outcomeAuto', { total, parts: sizes.length, sizes: sizes.join('+') });
     }
-    if (!state.splitCustomRanges.length) return 'Adicione um intervalo no painel à direita para ver a divisão aqui.';
-    return `${state.splitCustomRanges.length} intervalo(s) definido(s), gerando ${state.splitCustomRanges.length} arquivo(s). Páginas fora dos intervalos não entram em nenhum arquivo.`;
+    if (!state.splitCustomRanges.length) return t('split.outcomeCustomEmpty');
+    return t('split.outcomeCustom', { count: state.splitCustomRanges.length });
   }
   if (state.splitPagesSubMode === 'all') {
-    return `Cada uma das ${total} páginas vira um PDF separado, entregues em um .zip.`;
+    return t('split.outcomeAll', { total });
   }
   const count = state.splitSelectedPages.length;
-  if (!count) return 'Clique nas páginas abaixo para selecioná-las.';
+  if (!count) return t('split.outcomeSelectEmpty');
   return state.splitMergeSelected
-    ? `${count} página(s) selecionada(s) serão mescladas em um único PDF.`
-    : `${count} página(s) selecionada(s) viram ${count} PDF(s) separados.`;
+    ? t('split.outcomeSelectMerge', { count })
+    : t('split.outcomeSelectSeparate', { count });
 }
 
 export function SplitPreview() {
@@ -90,7 +91,7 @@ export function SplitPreview() {
   return (
     <div className="split-preview">
       <div className="split-preview-header">
-        <h4>Pré-visualização da divisão</h4>
+        <h4>{t('split.previewTitle')}</h4>
         <p>{describeOutcome(state, total)}</p>
       </div>
       <div className="split-preview-grid">
@@ -128,7 +129,7 @@ export function SplitPreview() {
                 )}
               </div>
               <div className="split-preview-label" style={{ color: group ? group.color : 'var(--color-neutral-500)' }}>
-                pág. {pageNumber}
+                {t('rail.pageLabel', { n: pageNumber })}
                 {group ? ` · ${group.label}` : ''}
               </div>
             </button>

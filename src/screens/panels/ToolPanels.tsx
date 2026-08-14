@@ -1,59 +1,60 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Download, GripVertical, Trash2, X } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { useApp } from '../../state/AppContext';
 import { formatBytes } from '../../pdf/loader';
-import { compressLabel, type CompressLevel } from '../../pdf/ops';
+import type { CompressLevel } from '../../pdf/ops';
+import { usePointerReorder } from '../../hooks/usePointerReorder';
+import { t } from '../../i18n/translations';
 
 /* ------------------------------------------------------------------ juntar */
 
 export function MergePanel() {
   const { state, actions } = useApp();
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const { dragIndex, itemProps } = usePointerReorder(actions.reorderMergeSelection);
 
   const selected = state.mergeSelected.map((id) => state.doc.sources[id]).filter(Boolean);
   const totalPages = selected.reduce((sum, s) => sum + s.pageCount, 0);
 
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>Juntar PDFs</h6>
-      <div className="panel-note">
-        Marque na coluna à esquerda os arquivos a juntar. Aqui você define a ordem em que as páginas entram no final do
-        documento atual.
-      </div>
+      <h6 style={{ color: 'var(--color-accent-700)' }}>{t('merge.title')}</h6>
+      <div className="panel-note">{t('merge.note')}</div>
 
       {selected.length === 0 ? (
-        <div className="panel-empty">Nenhum arquivo selecionado.</div>
+        <div className="panel-empty">{t('merge.noneSelected')}</div>
       ) : (
         <>
-          <div className="panel-label">Ordem de junção</div>
-          {selected.map((source, index) => (
+          <div className="panel-label">{t('merge.order')}</div>
+          {selected.map((source, index) => {
+            const { style: reorderStyle, ...reorderProps } = itemProps(index);
+            return (
             <div
               key={source.id}
               className={`merge-order-row${dragIndex === index ? ' dragging' : ''}`}
-              draggable
-              onDragStart={() => setDragIndex(index)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => {
-                if (dragIndex !== null && dragIndex !== index) actions.reorderMergeSelection(dragIndex, index);
-                setDragIndex(null);
-              }}
-              onDragEnd={() => setDragIndex(null)}
+              {...reorderProps}
+              style={reorderStyle}
             >
               <GripVertical size={14} strokeWidth={2.5} color="var(--color-neutral-500)" />
               <span className="merge-order-index">{index + 1}.</span>
               <span className="merge-order-name">
                 {source.name}
-                <span className="merge-order-meta">{source.pageCount} pág.</span>
+                <span className="merge-order-meta">{t('merge.pages', { count: source.pageCount })}</span>
               </span>
-              <button className="icon-btn-plain" aria-label={`Remover ${source.name}`} onClick={() => actions.toggleMergeSource(source.id)}>
+              <button
+                className="icon-btn-plain"
+                aria-label={t('merge.removeAria', { name: source.name })}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => actions.toggleMergeSource(source.id)}
+              >
                 <X size={13} strokeWidth={3} />
               </button>
             </div>
-          ))}
+            );
+          })}
 
           <Button variant="primary" block onClick={actions.confirmMerge} disabled={!!state.busy}>
-            Juntar {selected.length} arquivo(s) · +{totalPages} páginas
+            {t('merge.confirm', { count: selected.length, pages: totalPages })}
           </Button>
         </>
       )}
@@ -64,6 +65,11 @@ export function MergePanel() {
 /* --------------------------------------------------------------- comprimir */
 
 const LEVELS: CompressLevel[] = ['low', 'medium', 'high'];
+const LEVEL_KEY: Record<CompressLevel, 'compress.levelLow' | 'compress.levelMedium' | 'compress.levelHigh'> = {
+  low: 'compress.levelLow',
+  medium: 'compress.levelMedium',
+  high: 'compress.levelHigh',
+};
 
 export function CompressPanel() {
   const { state, actions } = useApp();
@@ -71,9 +77,9 @@ export function CompressPanel() {
 
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>Comprimir</h6>
+      <h6 style={{ color: 'var(--color-accent-700)' }}>{t('compress.title')}</h6>
 
-      <div className="panel-label">Intensidade</div>
+      <div className="panel-label">{t('compress.intensity')}</div>
       <div className="segmented">
         {LEVELS.map((level) => (
           <button
@@ -85,43 +91,40 @@ export function CompressPanel() {
             }}
             onClick={() => actions.setCompressLevel(level)}
           >
-            {compressLabel(level)}
+            {t(LEVEL_KEY[level])}
           </button>
         ))}
       </div>
 
-      <div className="panel-note">
-        Documentos digitalizados ou com muitas imagens são recodificados como imagem, o que reduz bastante o tamanho.
-        Arquivos de texto já otimizados são mantidos como estão, sem perder qualidade.
-      </div>
+      <div className="panel-note">{t('compress.note')}</div>
 
       <Button variant="primary" block onClick={actions.runCompress} disabled={!!state.busy}>
-        Comprimir agora
+        {t('compress.runNow')}
       </Button>
 
       {outcome && (
         <div className={outcome.reductionPct > 0 ? 'compress-result' : 'compress-result compress-result-warn'}>
           <div className="compress-row">
-            <span>Antes</span>
+            <span>{t('compress.before')}</span>
             <strong>{formatBytes(outcome.originalSize)}</strong>
           </div>
           <div className="compress-row">
-            <span>Depois</span>
+            <span>{t('compress.after')}</span>
             <strong>{formatBytes(outcome.compressedSize)}</strong>
           </div>
           <div className="compress-headline">
             {outcome.reductionPct > 0
-              ? `−${outcome.reductionPct}% de tamanho`
-              : 'Este arquivo já está no menor tamanho possível.'}
+              ? t('compress.reduced', { pct: outcome.reductionPct })
+              : t('compress.alreadyMin')}
           </div>
           <div className="panel-note">
             {outcome.strategy === 'raster'
-              ? 'As páginas viraram imagem, então o texto não fica mais selecionável.'
-              : 'Recodificar como imagem deixaria o arquivo maior, então o documento foi mantido com o texto selecionável.'}
+              ? t('compress.rasterNote')
+              : t('compress.rebuildNote')}
           </div>
           <Button variant="primary" block onClick={actions.downloadCompressed}>
             <Download size={16} strokeWidth={2.75} />
-            Baixar PDF
+            {t('compress.downloadPdf')}
           </Button>
         </div>
       )}
@@ -150,7 +153,7 @@ export function WatermarkPanel() {
 
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>Marca d'água</h6>
+      <h6 style={{ color: 'var(--color-accent-700)' }}>{t('wm.title')}</h6>
 
       <Button
         variant={wm.enabled ? 'primary' : 'secondary'}
@@ -158,7 +161,7 @@ export function WatermarkPanel() {
         style={{ marginTop: 0, justifyContent: 'center' }}
         onClick={() => commit({ enabled: !wm.enabled })}
       >
-        {wm.enabled ? 'Marca d\'água ativa' : 'Ativar marca d\'água'}
+        {wm.enabled ? t('wm.active') : t('wm.activate')}
       </Button>
 
       {wm.enabled && (
@@ -172,7 +175,7 @@ export function WatermarkPanel() {
               }}
               onClick={() => commit({ source: { kind: 'text', text: wm.source.kind === 'text' ? wm.source.text : 'AMOSTRA' } })}
             >
-              Texto
+              {t('wm.text')}
             </button>
             <button
               className="segmented-btn"
@@ -182,13 +185,13 @@ export function WatermarkPanel() {
               }}
               onClick={actions.uploadWatermarkImage}
             >
-              Imagem
+              {t('wm.image')}
             </button>
           </div>
 
           {wm.source.kind === 'text' ? (
             <>
-              <div className="panel-label">Texto</div>
+              <div className="panel-label">{t('wm.text')}</div>
               <input
                 type="text"
                 className="text-input"
@@ -199,8 +202,8 @@ export function WatermarkPanel() {
             </>
           ) : (
             <div className="panel-row" style={{ justifyContent: 'space-between' }}>
-              <span className="panel-note" style={{ margin: 0 }}>Imagem carregada</span>
-              <Button onClick={actions.uploadWatermarkImage} disabled={!!state.busy}>Trocar imagem</Button>
+              <span className="panel-note" style={{ margin: 0 }}>{t('wm.imageLoaded')}</span>
+              <Button onClick={actions.uploadWatermarkImage} disabled={!!state.busy}>{t('wm.swapImage')}</Button>
             </div>
           )}
 
@@ -213,7 +216,7 @@ export function WatermarkPanel() {
               }}
               onClick={() => commit({ allPages: true })}
             >
-              Em todas as páginas
+              {t('wm.allPages')}
             </button>
             <button
               className="segmented-btn"
@@ -223,18 +226,18 @@ export function WatermarkPanel() {
               }}
               onClick={() => commit({ allPages: false })}
             >
-              Apenas na selecionada
+              {t('wm.onlySelected')}
             </button>
           </div>
 
-          <Slider label="Posição horizontal" min={0} max={100} value={wm.x} onLive={(x) => live({ x })} onCommit={(x) => commit({ x })} suffix="%" />
-          <Slider label="Posição vertical" min={0} max={100} value={wm.y} onLive={(y) => live({ y })} onCommit={(y) => commit({ y })} suffix="%" />
-          <Slider label="Tamanho" min={20} max={250} value={wm.scale} onLive={(scale) => live({ scale })} onCommit={(scale) => commit({ scale })} suffix="%" />
-          <Slider label="Rotação" min={-90} max={90} value={wm.rotation} onLive={(rotation) => live({ rotation })} onCommit={(rotation) => commit({ rotation })} suffix="°" />
+          <Slider label={t('wm.posH')} min={0} max={100} value={wm.x} onLive={(x) => live({ x })} onCommit={(x) => commit({ x })} suffix="%" />
+          <Slider label={t('wm.posV')} min={0} max={100} value={wm.y} onLive={(y) => live({ y })} onCommit={(y) => commit({ y })} suffix="%" />
+          <Slider label={t('wm.scale')} min={20} max={250} value={wm.scale} onLive={(scale) => live({ scale })} onCommit={(scale) => commit({ scale })} suffix="%" />
+          <Slider label={t('wm.rotation')} min={-90} max={90} value={wm.rotation} onLive={(rotation) => live({ rotation })} onCommit={(rotation) => commit({ rotation })} suffix="°" />
 
           <Button block onClick={() => commit({ enabled: false })}>
             <Trash2 size={16} strokeWidth={2.75} />
-            Remover marca d'água
+            {t('wm.remove')}
           </Button>
         </>
       )}
@@ -283,10 +286,8 @@ function Slider({
 export function ReorderPanel() {
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>Organizar páginas</h6>
-      <div className="panel-note">
-        Arraste as páginas na área central ou na coluna à esquerda para reordenar o documento.
-      </div>
+      <h6 style={{ color: 'var(--color-accent-700)' }}>{t('reorder.title')}</h6>
+      <div className="panel-note">{t('reorder.note')}</div>
     </>
   );
 }

@@ -29,6 +29,11 @@ export function WatermarkPreview({
     position: 'absolute' as const,
     pointerEvents: 'none' as const,
     opacity: 0.35,
+    // Matches the page's own zoom transition (see PageView) — without this,
+    // the watermark snapped straight to each new size/position a beat ahead
+    // of the page smoothly resizing around it, which read as it glitching
+    // during a zoom.
+    transition: 'left .16s ease-out, top .16s ease-out, width .16s ease-out, height .16s ease-out, font-size .16s ease-out',
   };
 
   if (overlay.kind === 'text') {

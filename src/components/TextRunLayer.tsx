@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useApp } from '../state/AppContext';
 import type { Overlay, WorkPage } from '../pdf/model';
 import { extractPageText, type TextItem } from '../pdf/textExtract';
+import { t } from '../i18n/translations';
 
 /**
  * A run counts as already replaced once a 'cover' overlay sits over its exact
@@ -60,7 +61,7 @@ export function TextRunLayer({ page, scale }: { page: WorkPage; scale: number })
           <button
             key={item.id}
             className={`text-run${selected ? ' text-run-selected' : ''}`}
-            title={`${item.originalFont} · ${Math.round(item.fontSize)}pt — clique para substituir`}
+            title={t('run.detectedRun', { font: item.originalFont, size: Math.round(item.fontSize) })}
             style={{
               left: item.x * scale,
               top: (page.height - item.y - item.height) * scale,

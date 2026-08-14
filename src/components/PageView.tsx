@@ -47,25 +47,44 @@ export function PageView({ page, source, scale, children, className, style, onCl
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const shown = displaySize(page);
+  const pageKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
+    const pageKey = `${page.sourceId ?? ''}:${page.sourceIndex}:${page.id}`;
+    const isFreshPage = pageKeyRef.current !== pageKey;
+    pageKeyRef.current = pageKey;
+
     let cancelled = false;
-    setReady(false);
-    renderPageRaw(source, page, scale)
-      .then((rendered) => {
-        if (cancelled) return;
-        const target = canvasRef.current;
-        if (!target) return;
-        target.width = rendered.width;
-        target.height = rendered.height;
-        target.getContext('2d')!.drawImage(rendered, 0, 0);
-        setReady(true);
-      })
-      .catch(() => {
-        if (!cancelled) setReady(true);
-      });
+    if (isFreshPage) setReady(false);
+
+    // Re-rasterizing on every intermediate step of a continuous wheel or
+    // slider zoom pegs the main thread on every tick, which is what made
+    // anything positioned via layout (left/top) — the selection ring in
+    // particular — visibly stutter out of step with the page itself, which
+    // stays smooth because it's only ever CSS-scaling the existing bitmap.
+    // Debouncing the re-render (never the CSS transition) for a pure zoom
+    // change keeps that same bitmap on screen, smoothly scaled, until the
+    // zoom settles. A genuinely new page still swaps immediately — there's
+    // no valid bitmap to fall back to, so nothing is gained by waiting.
+    const delay = isFreshPage ? 0 : 120;
+    const timer = window.setTimeout(() => {
+      renderPageRaw(source, page, scale)
+        .then((rendered) => {
+          if (cancelled) return;
+          const target = canvasRef.current;
+          if (!target) return;
+          target.width = rendered.width;
+          target.height = rendered.height;
+          target.getContext('2d')!.drawImage(rendered, 0, 0);
+          setReady(true);
+        })
+        .catch(() => {
+          if (!cancelled) setReady(true);
+        });
+    }, delay);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
     // Re-render only when the underlying bitmap would actually change.
   }, [source, page.id, page.sourceId, page.sourceIndex, page.width, page.height, scale]);

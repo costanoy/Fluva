@@ -3,6 +3,7 @@ import { Button } from '../../components/Button';
 import { useApp } from '../../state/AppContext';
 import { SUBSTITUTE_FAMILIES, familyByKey } from '../../pdf/fonts';
 import type { Rect } from '../../pdf/model';
+import { t } from '../../i18n/translations';
 
 /**
  * Editor for one original text run. PDF text cannot be mutated in place, so
@@ -31,20 +32,20 @@ export function TextRunPanel() {
 
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>Substituir texto</h6>
+      <h6 style={{ color: 'var(--color-accent-700)' }}>{t('run.title')}</h6>
 
-      <div className="panel-label">Texto</div>
+      <div className="panel-label">{t('run.text')}</div>
       <textarea className="text-input" rows={6} value={text} onChange={(e) => actions.setTextRunDraft({ text: e.target.value })} />
 
       <div className="font-detected">
-        <span className="font-detected-label">Fonte original</span>
+        <span className="font-detected-label">{t('run.originalFont')}</span>
         <strong>{target.originalFont}</strong>
         <span className={target.exactSubstitute ? 'font-badge font-badge-exact' : 'font-badge'}>
-          {target.exactSubstitute ? 'substituta com métrica idêntica' : 'substituta aproximada'}
+          {target.exactSubstitute ? t('run.exactMatch') : t('run.approxMatch')}
         </span>
       </div>
 
-      <div className="panel-label">Fonte substituta</div>
+      <div className="panel-label">{t('run.substituteFont')}</div>
       <div className="font-option-list">
         {SUBSTITUTE_FAMILIES.map((f) => (
           <button
@@ -54,7 +55,7 @@ export function TextRunPanel() {
             onClick={() => actions.setTextRunDraft({ fontKey: f.key })}
           >
             <span style={{ fontFamily: f.cssFamily, fontWeight: 700 }}>{f.label}</span>
-            <span style={{ color: 'var(--color-neutral-600)', fontSize: 13 }}> — no lugar de {f.metricMatches.slice(0, 2).join(', ')}</span>
+            <span style={{ color: 'var(--color-neutral-600)', fontSize: 13 }}>{t('run.inPlaceOf', { names: f.metricMatches.slice(0, 2).join(', ') })}</span>
           </button>
         ))}
       </div>
@@ -62,18 +63,18 @@ export function TextRunPanel() {
       <button
         className="panel-group-subaction"
         style={{ justifyContent: 'center', border: '1px dashed var(--color-divider)' }}
-        title="Procura, em todas as páginas, outros textos com a mesma fonte original e aplica esta mesma substituta a todos, mantendo o negrito/itálico e as cores de cada um"
+        title={t('run.applyFontTitle')}
         onClick={() => actions.applyFontToMatchingRuns(target.originalFont, fontKey, target.id)}
       >
         <Wand2 size={14} strokeWidth={2.5} />
-        Aplicar esta fonte a todo o documento
+        {t('run.applyFontToDoc')}
       </button>
 
       <div className="font-preview" style={{ fontFamily: family.cssFamily, fontWeight: bold ? 700 : 400, fontStyle: italic ? 'italic' : 'normal' }}>
         {text.split('\n')[0] || 'Aa Bb Cc'}
       </div>
 
-      <div className="panel-label">Tamanho</div>
+      <div className="panel-label">{t('overlay.size')}</div>
       <div className="panel-row">
         <input
           type="number"
@@ -107,16 +108,16 @@ export function TextRunPanel() {
         disabled={!text.trim() || !!state.busy}
         onClick={() => detachFromPage({ x: target.x, y: target.y, width: target.width, height: target.height })}
       >
-        Substituir texto
+        {t('run.replaceText')}
       </Button>
       <Button
         block
         disabled={!text.trim() || !!state.busy}
-        title="Solta o texto do PDF original para você arrastá-lo livremente pela página"
+        title={t('run.moveTextTitle')}
         onClick={() => detachFromPage({ x: target.x, y: target.y, width: target.width, height: target.height }, true)}
       >
         <Move size={16} strokeWidth={2.75} />
-        Mover texto
+        {t('run.moveText')}
       </Button>
       <Button
         block
@@ -125,7 +126,7 @@ export function TextRunPanel() {
           actions.setTextRunTarget(null);
         }}
       >
-        Cancelar
+        {t('run.cancel')}
       </Button>
     </>
   );
