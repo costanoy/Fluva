@@ -21,9 +21,12 @@ export function TextRunPanel() {
   const { text, fontKey, size, bold, italic } = draft;
   const family = familyByKey(fontKey);
 
+  // replaceTextRun clears textRunTarget/textRunDraft itself once the
+  // replacement overlay actually exists — clearing it here first would leave
+  // a gap where this panel had already unmounted but nothing had replaced it
+  // yet.
   const detachFromPage = (bounds: Rect, enterMoveMode = false) => {
     actions.replaceTextRun(bounds, text, fontKey, size, bold, italic, enterMoveMode);
-    actions.setTextRunTarget(null);
   };
 
   return (
@@ -101,14 +104,14 @@ export function TextRunPanel() {
       <Button
         variant="primary"
         block
-        disabled={!text.trim()}
+        disabled={!text.trim() || !!state.busy}
         onClick={() => detachFromPage({ x: target.x, y: target.y, width: target.width, height: target.height })}
       >
         Substituir texto
       </Button>
       <Button
         block
-        disabled={!text.trim()}
+        disabled={!text.trim() || !!state.busy}
         title="Solta o texto do PDF original para você arrastá-lo livremente pela página"
         onClick={() => detachFromPage({ x: target.x, y: target.y, width: target.width, height: target.height }, true)}
       >

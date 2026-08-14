@@ -20,18 +20,41 @@
   min-width: 0;
 }
 
-.top-bar-filename {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.top-bar-file-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.top-bar-filename-input {
+  min-width: 0;
+  max-width: 320px;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 4px 7px;
+  margin: -4px -7px -1px;
+}
+
+.top-bar-filename-input:hover {
+  background: var(--color-neutral-200);
+}
+
+.top-bar-filename-input:focus {
+  outline: none;
+  background: #FFFFFF;
+  border-color: var(--color-accent);
 }
 
 .top-bar-pagecount {
   flex-shrink: 0;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--color-neutral-500);
-  padding-left: 2px;
+  padding-left: 7px;
 }
 
 .top-bar-brand {
@@ -186,6 +209,41 @@
     padding: 7px 10px;
     font-size: 13px;
     gap: 5px;
+  }
+}
+
+/* Below ~480px the three-column top bar (name / brand / export) genuinely
+   runs out of room — the brand's centered column and the export button's
+   min-content width were leaving the filename input squeezed to a few
+   pixels, unusable for renaming. Dropping the redundant page count and the
+   export button's label (icon + chevron alone still read as "export" next
+   to the accent color) hands that space back to the input. */
+@media (max-width: 480px) {
+  .top-bar-pagecount {
+    display: none;
+  }
+
+  .top-bar-filename-input {
+    max-width: none;
+  }
+
+  .top-bar-export-label {
+    display: none;
+  }
+
+  .top-bar-export .btn-primary {
+    padding: 8px 10px;
+    gap: 0;
+  }
+
+  .top-bar-brand {
+    font-size: 0;
+    gap: 0;
+  }
+
+  .brand-logo {
+    width: 36px;
+    height: 36px;
   }
 }
 

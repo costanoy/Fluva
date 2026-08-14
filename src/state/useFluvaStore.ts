@@ -440,6 +440,13 @@ export function useFluvaStore() {
        * state to preserve or discard, so a plain UI-only navigation. */
       setScreen: (screen: Screen) => set({ screen }),
 
+      /** Renames the document — this is what every export filename is derived
+       * from (see `baseNameFor`). Kept off the undo stack (`set`, not `mutate`)
+       * so backspacing through a typo doesn't also eat Ctrl+Z presses meant for
+       * page edits; still flags the document dirty so the unsaved-changes
+       * warning covers a rename with nothing else touched. */
+      renameDocument: (name: string) => set((st) => ({ doc: { ...st.doc, name }, dirty: true })),
+
       /* ---------------------------------------------------------- page basics */
 
       setActivePage: (index: number) => {
@@ -615,18 +622,49 @@ export function useFluvaStore() {
        * first (a beat's delay), then commits by page id — never by
        * `activePageIndex`, which could point somewhere else by the time
        * sampling resolves.
+       *
+       * Routed through `withBusy` so that beat has a visible "something is
+       * happening" state instead of a gap where `textRunTarget` has already
+       * been cleared by the caller but the replacement overlay doesn't exist
+       * yet — during which the panel had nothing to show but the generic
+       * "Adicionar" view and the selection ring simply wasn't there yet. This
+       * also gives the sampling step the same error handling every other
+       * async action gets, instead of a silent, permanently stuck UI if it
+       * ever rejects. `textRunTarget`/`textRunDraft` are cleared here, in the
+       * same commit as the new overlay's selection — callers no longer clear
+       * them themselves, so there's never a render in between with neither.
+       *
+       * `offset` shifts only the replacement text's final resting spot, not
+       * the cover — the cover always blanks the run's real original position,
+       * regardless of where the new text ends up. This is how dragging the
+       * preview's own move handle (see TextRunPreview) commits straight into
+       * its dragged position in one gesture, instead of landing back on the
+       * original spot and needing a second, separate drag once "Movendo
+       * texto" mode turns on.
        */
-      replaceTextRun: (bounds: Rect, text: string, fontKey: string, size: number, bold: boolean, italic: boolean, enterMoveMode = false) => {
+      replaceTextRun: (
+        bounds: Rect,
+        text: string,
+        fontKey: string,
+        size: number,
+        bold: boolean,
+        italic: boolean,
+        enterMoveMode = false,
+        offset: { dx: number; dy: number } = { dx: 0, dy: 0 },
+      ) => {
         const st = stateRef.current;
         const page = currentPage(st);
         if (!page) return;
         const pageId = page.id;
-        sampleRunColors(st.doc, page, [bounds]).then(([colors]) => {
+        withBusy('Aplicando…', async () => {
+          const [colors] = await sampleRunColors(st.doc, page, [bounds]);
           mutate((cur) => {
             const idx = cur.doc.pages.findIndex((p) => p.id === pageId);
             if (idx === -1) return null;
             const targetPage = cur.doc.pages[idx];
             const { cover, replacement } = buildTextReplacementOverlays(bounds, text, fontKey, size, bold, italic, colors);
+            replacement.x += offset.dx;
+            replacement.y += offset.dy;
             const nextPage = { ...targetPage, overlays: [...targetPage.overlays, cover, replacement] };
             const pages = cur.doc.pages.map((p, i) => (i === idx ? nextPage : p));
             return {
@@ -634,6 +672,8 @@ export function useFluvaStore() {
               selectedOverlayId: replacement.id,
               editingTextId: null,
               movingOverlayId: enterMoveMode ? replacement.id : null,
+              textRunTarget: null,
+              textRunDraft: null,
             };
           });
         });
@@ -946,16 +986,20 @@ export function useFluvaStore() {
             const multi = st.doc.pages.length > 1;
             set({ toast: multi ? `${st.doc.pages.length} imagens exportadas em .zip.` : `${base}.${format} exportado.` });
           } else {
-            const { paragraphs } = await exportAsDocx(st.doc, base, progress);
+            const { paragraphs, images } = await exportAsDocx(st.doc, base, progress);
+            const imageNote = images ? ` e ${images} imagem(ns)` : '';
             set({
               toast: paragraphs
-                ? `${base}.docx exportado com ${paragraphs} parágrafos de texto.`
+                ? `${base}.docx exportado com ${paragraphs} parágrafos de texto${imageNote}.`
                 : `${base}.docx exportado, mas nenhum texto foi encontrado no PDF.`,
             });
           }
-          // Reached only if the export above didn't throw — the document is now
-          // safely out of the browser, so the "unsaved changes" warning can stand down.
-          set({ dirty: false });
+          // Deliberately NOT clearing `dirty` here. An export is a copy, not a
+          // save — the document open in the tab is still the one thing with
+          // every edit, and there's no way back into it once the tab closes.
+          // Leaving `dirty` set keeps both the beforeunload prompt and the
+          // Back-button confirm live for the rest of the session after any
+          // edit, exported or not, so neither can silently drop changes.
         });
       },
 
@@ -997,10 +1041,19 @@ export function useFluvaStore() {
       }
 
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-      const id = stateRef.current.selectedOverlayId;
-      if (!id) return;
-      e.preventDefault();
-      actions.removeOverlay(id);
+      const st = stateRef.current;
+      if (st.selectedOverlayId) {
+        e.preventDefault();
+        actions.removeOverlay(st.selectedOverlayId);
+        return;
+      }
+      // The watermark has no per-instance id to "select" — its panel being
+      // open is the closest equivalent, so Delete there removes it the same
+      // way it would any other selected thing on the page.
+      if (st.toolMode === 'watermark' && st.doc.watermark.enabled) {
+        e.preventDefault();
+        actions.updateWatermark({ enabled: false }, true);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

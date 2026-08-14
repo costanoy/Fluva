@@ -24,10 +24,32 @@ export function TopBar() {
         {isEditing && (
           <>
             {state.doc.kind === 'pdf' ? <FileText size={15} strokeWidth={2.75} /> : <ImageIcon size={15} strokeWidth={2.75} />}
-            <span className="top-bar-filename">{state.doc.name}</span>
-            <span className="top-bar-pagecount">
-              {state.doc.pages.length} {state.doc.pages.length === 1 ? 'página' : 'páginas'}
-            </span>
+            <div className="top-bar-file-text">
+              <input
+                className="top-bar-filename-input"
+                value={state.doc.name}
+                // Every export filename comes from this same name (see baseNameFor
+                // in pdf/exporters.ts) — editing it here is the one place that
+                // controls what the downloaded file is actually called.
+                onChange={(e) => actions.renameDocument(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                onBlur={(e) => {
+                  // An empty name would export as "documento" silently (baseNameFor's
+                  // fallback) — restoring a visible placeholder here instead keeps
+                  // that behavior from looking like the field just ate the text.
+                  if (!e.target.value.trim()) actions.renameDocument('documento');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                }}
+                title="Renomear arquivo"
+                aria-label="Nome do arquivo para exportação"
+                spellCheck={false}
+              />
+              <span className="top-bar-pagecount">
+                {state.doc.pages.length} {state.doc.pages.length === 1 ? 'página' : 'páginas'}
+              </span>
+            </div>
           </>
         )}
       </div>
@@ -69,7 +91,7 @@ export function TopBar() {
         <div className="top-bar-export">
           <Button variant="primary" style={{ padding: '11px 20px', fontSize: 16 }} onClick={actions.toggleExport} disabled={!!state.busy}>
             <Upload size={16} strokeWidth={2.75} />
-            Exportar
+            <span className="top-bar-export-label">Exportar</span>
             <ChevronDown size={14} strokeWidth={3} />
           </Button>
           {state.exportOpen && <ExportDropdown />}

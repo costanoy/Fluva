@@ -1,9 +1,9 @@
-import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
+import { Document, HeadingLevel, ImageRun, Packer, Paragraph, TextRun } from 'docx';
 import { zipSync, strToU8 } from 'fflate';
 import type { DocumentState } from './model';
 import { buildPdf } from './build';
 import { canvasToBlob, rasterizePdf } from './render';
-import { extractPageText, groupIntoLines } from './textExtract';
+import { extractPageImages, extractPageText, groupIntoLines } from './textExtract';
 import { stripExtension } from './loader';
 
 export type ExportFormat = 'pdf' | 'png' | 'jpg' | 'docx';
@@ -66,19 +66,27 @@ export async function exportAsImages(
   downloadBytes(zipped, `${baseName}_${format}.zip`, 'application/zip');
 }
 
+/** Word renders images at 96 CSS px per inch, PDF space is 72 points per inch. */
+const DOCX_PX_PER_PT = 96 / 72;
+/** Keeps a large photo or screenshot from blowing out the page width. */
+const DOCX_MAX_IMAGE_WIDTH_PX = 500;
+
 /**
- * Builds a real .docx from the text actually present in the PDF.
+ * Builds a real .docx from the text and images actually present in the PDF.
  *
- * This recovers the text and its reading order, not the original layout: columns,
- * tables, and images are not reconstructed. The UI says so before the user commits.
+ * This recovers the content and its reading order, not the original layout:
+ * columns and tables are not reconstructed, and each page's images are placed
+ * after its text rather than interleaved at their exact original position.
+ * The UI says so before the user commits.
  */
 export async function exportAsDocx(
   doc: DocumentState,
   baseName: string,
   onProgress?: (done: number, total: number) => void,
-): Promise<{ paragraphs: number }> {
+): Promise<{ paragraphs: number; images: number }> {
   const paragraphs: Paragraph[] = [];
   let count = 0;
+  let imageCount = 0;
 
   for (let i = 0; i < doc.pages.length; i++) {
     const page = doc.pages[i];
@@ -116,13 +124,32 @@ export async function exportAsDocx(
       count += 1;
     }
 
+    for (const img of await extractPageImages(doc, page)) {
+      const widthPx = Math.round(img.width * DOCX_PX_PER_PT);
+      const heightPx = Math.round(img.height * DOCX_PX_PER_PT);
+      const shrink = Math.min(1, DOCX_MAX_IMAGE_WIDTH_PX / widthPx);
+      paragraphs.push(
+        new Paragraph({
+          spacing: { before: 120, after: 120 },
+          children: [
+            new ImageRun({
+              type: 'png',
+              data: img.bytes,
+              transformation: { width: Math.round(widthPx * shrink), height: Math.round(heightPx * shrink) },
+            }),
+          ],
+        }),
+      );
+      imageCount += 1;
+    }
+
     onProgress?.(i + 1, doc.pages.length);
   }
 
   const docx = new Document({ sections: [{ properties: {}, children: paragraphs }] });
   const blob = await Packer.toBlob(docx);
   downloadBlob(blob, `${baseName}.docx`);
-  return { paragraphs: count };
+  return { paragraphs: count, images: imageCount };
 }
 
 export function baseNameFor(doc: DocumentState): string {

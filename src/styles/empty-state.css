@@ -226,6 +226,35 @@
   color: var(--color-neutral-500);
 }
 
+.feature-grid {
+  display: grid;
+  /* auto-fit + minmax reflows to fewer columns on its own as the card
+     narrows, so this needs no separate mobile breakpoint. */
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 14px;
+}
+
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-neutral-800);
+}
+
+.feature-item-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-accent-100);
+  color: var(--color-accent-700);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 @media (max-width: 899px) {
   .empty-state {
     padding: 20px 16px;

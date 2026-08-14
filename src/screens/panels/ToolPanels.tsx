@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Download, GripVertical, X } from 'lucide-react';
+import { Download, GripVertical, Trash2, X } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { useApp } from '../../state/AppContext';
 import { formatBytes } from '../../pdf/loader';
@@ -231,6 +231,11 @@ export function WatermarkPanel() {
           <Slider label="Posição vertical" min={0} max={100} value={wm.y} onLive={(y) => live({ y })} onCommit={(y) => commit({ y })} suffix="%" />
           <Slider label="Tamanho" min={20} max={250} value={wm.scale} onLive={(scale) => live({ scale })} onCommit={(scale) => commit({ scale })} suffix="%" />
           <Slider label="Rotação" min={-90} max={90} value={wm.rotation} onLive={(rotation) => live({ rotation })} onCommit={(rotation) => commit({ rotation })} suffix="°" />
+
+          <Button block onClick={() => commit({ enabled: false })}>
+            <Trash2 size={16} strokeWidth={2.75} />
+            Remover marca d'água
+          </Button>
         </>
       )}
     </>

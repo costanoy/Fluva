@@ -1,5 +1,6 @@
 import type { DocumentState, Rect, WorkPage } from './model';
-import { getPdfDoc } from './render';
+import { canvasToBlob, getPdfDoc } from './render';
+import { pdfjsLib } from './pdfjs';
 import { cleanFontName, isBoldName, isItalicName, matchSubstitute } from './fonts';
 
 export interface TextItem {
@@ -229,4 +230,122 @@ function joinLine(items: TextItem[]): string {
     prevEnd = item.x + item.width;
   }
   return out.replace(/\s+/g, ' ').trim();
+}
+
+export interface PageImage {
+  /** PNG-encoded. */
+  bytes: Uint8Array;
+  /** In PDF points, for anyone that wants to scale it proportionally. */
+  width: number;
+  height: number;
+}
+
+/** Render scale (canvas px per PDF point) used when cropping images out —
+ * high enough that a photo or screenshot doesn't come out visibly soft. */
+const IMAGE_EXTRACT_SCALE = 2;
+
+/**
+ * Finds the raster images actually painted on a page and crops each one out
+ * of a full render of it, in page order.
+ *
+ * `getTextContent()` only ever sees text — a PDF page's image XObjects are
+ * just as invisible to it as the page background is, which is why a page
+ * built mostly out of screenshots or photos with a little text around them
+ * used to come out of the DOCX export as if the images were never there.
+ *
+ * pdf.js's operator list carries `paintImageXObject` calls but not where
+ * they land — that's implied by whatever `save`/`transform`/`restore` calls
+ * came before each one, the same bookkeeping pdf.js's own renderer does
+ * internally. Replaying just that subset of operators here recovers each
+ * image's placement without reimplementing the renderer. Cropping the
+ * already-rendered page (rather than decoding each XObject's own samples)
+ * sidesteps every colour-space/SMask/filter detail — it's already resolved
+ * correctly in the pixels the page rendered with.
+ */
+export async function extractPageImages(doc: DocumentState, page: WorkPage): Promise<PageImage[]> {
+  const source = page.sourceId ? doc.sources[page.sourceId] : undefined;
+  if (!source || source.kind !== 'pdf') return [];
+
+  const pdf = await getPdfDoc(source);
+  const pdfPage = await pdf.getPage(page.sourceIndex + 1);
+  const opList = await pdfPage.getOperatorList();
+  const OPS = pdfjsLib.OPS;
+
+  const multiply = (m: number[], n: number[]) => [
+    m[0] * n[0] + m[1] * n[2],
+    m[0] * n[1] + m[1] * n[3],
+    m[2] * n[0] + m[3] * n[2],
+    m[2] * n[1] + m[3] * n[3],
+    m[4] * n[0] + m[5] * n[2] + n[4],
+    m[4] * n[1] + m[5] * n[3] + n[5],
+  ];
+
+  const boxes: Rect[] = [];
+  const stack: number[][] = [];
+  let ctm = [1, 0, 0, 1, 0, 0];
+  for (let i = 0; i < opList.fnArray.length; i++) {
+    const fn = opList.fnArray[i];
+    if (fn === OPS.save) {
+      stack.push(ctm);
+    } else if (fn === OPS.restore) {
+      ctm = stack.pop() ?? ctm;
+    } else if (fn === OPS.transform) {
+      ctm = multiply(opList.argsArray[i] as number[], ctm);
+    } else if (fn === OPS.paintImageXObject || fn === OPS.paintImageMaskXObject) {
+      // The unit square [0,1]x[0,1], carried through the current transform,
+      // is exactly where an image XObject paints — that's the whole point
+      // of the CTM at a paint call.
+      const corners = [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ].map(([x, y]) => [ctm[0] * x + ctm[2] * y + ctm[4], ctm[1] * x + ctm[3] * y + ctm[5]]);
+      const xs = corners.map((c) => c[0]);
+      const ys = corners.map((c) => c[1]);
+      const x = Math.min(...xs);
+      const y = Math.min(...ys);
+      const width = Math.max(...xs) - x;
+      const height = Math.max(...ys) - y;
+      // Skip slivers — hairline rules and 1px separators are technically
+      // image XObjects too in some exporters, but embedding them adds noise
+      // without adding content.
+      if (width > 6 && height > 6) boxes.push({ x, y, width, height });
+    }
+  }
+  if (!boxes.length) {
+    pdfPage.cleanup();
+    return [];
+  }
+
+  // Print intent, not renderPageRaw's default one — this runs as part of an
+  // export, off-screen, and the default intent drives its progressive
+  // updates through requestAnimationFrame, which a backgrounded (or, as
+  // established elsewhere in this codebase, a non-compositing) tab can leave
+  // never firing, hanging this step indefinitely.
+  const viewport = pdfPage.getViewport({ scale: IMAGE_EXTRACT_SCALE });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(viewport.width));
+  canvas.height = Math.max(1, Math.round(viewport.height));
+  const pageCtx = canvas.getContext('2d')!;
+  pageCtx.fillStyle = '#FFFFFF';
+  pageCtx.fillRect(0, 0, canvas.width, canvas.height);
+  await pdfPage.render({ canvas, viewport, intent: 'print' }).promise;
+  pdfPage.cleanup();
+
+  const results: PageImage[] = [];
+  for (const box of boxes) {
+    const px = Math.max(0, Math.round(box.x * IMAGE_EXTRACT_SCALE));
+    const py = Math.max(0, Math.round((page.height - box.y - box.height) * IMAGE_EXTRACT_SCALE));
+    const pw = Math.min(canvas.width - px, Math.round(box.width * IMAGE_EXTRACT_SCALE));
+    const ph = Math.min(canvas.height - py, Math.round(box.height * IMAGE_EXTRACT_SCALE));
+    if (pw <= 0 || ph <= 0) continue;
+    const crop = document.createElement('canvas');
+    crop.width = pw;
+    crop.height = ph;
+    crop.getContext('2d')!.drawImage(canvas, px, py, pw, ph, 0, 0, pw, ph);
+    const blob = await canvasToBlob(crop, 'image/png');
+    results.push({ bytes: new Uint8Array(await blob.arrayBuffer()), width: box.width, height: box.height });
+  }
+  return results;
 }

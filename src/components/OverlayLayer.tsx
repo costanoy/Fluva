@@ -10,6 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { Move } from 'lucide-react';
 import type { ImageAsset, Overlay, WorkPage } from '../pdf/model';
 import { TEXT_LINE_HEIGHT } from '../pdf/build';
 import { familyByKey } from '../pdf/fonts';
@@ -38,7 +39,7 @@ export function overlayBox(overlay: Overlay): { x: number; y: number; width: num
  */
 /** Capture can reject a stale/synthetic pointer id; the drag itself doesn't
  * depend on it succeeding, so a rejection shouldn't stop the gesture. */
-function safeSetPointerCapture(el: HTMLElement, pointerId: number) {
+export function safeSetPointerCapture(el: HTMLElement, pointerId: number) {
   try {
     el.setPointerCapture(pointerId);
   } catch {
@@ -73,7 +74,7 @@ function placeCaretAt(el: HTMLElement, clientX: number, clientY: number) {
   sel?.addRange(range);
 }
 
-function screenDeltaToPage(dxScreen: number, dyScreen: number, rotationDeg: number, scale: number) {
+export function screenDeltaToPage(dxScreen: number, dyScreen: number, rotationDeg: number, scale: number) {
   const rad = (rotationDeg * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
@@ -126,7 +127,7 @@ interface OverlayItemProps extends Omit<OverlayLayerProps, 'selectedId'> {
 }
 
 function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveChange, onCommit, interactive }: OverlayItemProps) {
-  const { state } = useApp();
+  const { state, actions } = useApp();
   const box = overlayBox(overlay);
   const dragState = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const resizeState = useRef<{ startX: number; startY: number; w: number; h: number; y: number } | null>(null);
@@ -233,6 +234,35 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
     setIsInteracting(false);
   }, [latest, onCommit, overlay.id]);
 
+  /**
+   * The little move handle at a selected text overlay's corner — same idea as
+   * TextRunPreview's own handle, now that the run has already been committed.
+   * Its press always starts a drag straight away (unlike pressing the text
+   * itself, which places a caret outside of "Mover texto" mode) by going
+   * straight to the same drag-tracking `handlePointerDown`'s text branch
+   * would only reach once already in that mode.
+   */
+  const handleMoveHandlePointerDown = useCallback(
+    (e: ReactPointerEvent) => {
+      if (!interactive) return;
+      e.stopPropagation();
+      safeSetPointerCapture(e.currentTarget as HTMLElement, e.pointerId);
+      dragState.current = { startX: e.clientX, startY: e.clientY, originX: overlay.x, originY: overlay.y };
+      setIsInteracting(true);
+    },
+    [interactive, overlay.x, overlay.y],
+  );
+
+  // A press-and-drag commits the new position exactly like any other drag —
+  // `handlePointerUp` already does that. A plain tap (no movement) instead
+  // drops into "Mover texto" mode, so grabbing the text body itself works
+  // right after, matching the handle's behavior before this run was replaced.
+  const handleMoveHandlePointerUp = useCallback(() => {
+    const moved = !!latest;
+    handlePointerUp();
+    if (!moved) actions.setMovingOverlay(overlay.id);
+  }, [latest, handlePointerUp, actions, overlay.id]);
+
   const handleTextInput = useCallback(
     (e: ReactFormEvent<HTMLDivElement>) => {
       onLiveChange(overlay.id, { text: e.currentTarget.textContent ?? '' } as Partial<Overlay>);
@@ -329,29 +359,82 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
     // above) — it's owned by the DOM while mounted, not re-rendered from state.
     const editable = selected && interactive && !isMovingThis;
     return (
+      // A plain positioning shell around the text, sized to fit it exactly
+      // (no width/height of its own) — the move handle below anchors to its
+      // corner via `right`/`bottom`, which tracks the text's real rendered
+      // size for free, in CSS, without measuring anything in JS every time
+      // the content, font or size changes.
       <div
-        {...pointerHandlers}
-        onClick={(e) => e.stopPropagation()}
-        ref={textRef}
-        contentEditable={editable}
-        suppressContentEditableWarning
-        onInput={editable ? handleTextInput : undefined}
-        onBlur={editable ? handleTextBlur : undefined}
-        onKeyDown={editable ? handleTextKeyDown : undefined}
         style={{
-          ...base,
+          position: 'absolute',
+          left: base.left,
+          top: base.top,
           transform: `rotate(${-overlay.rotation}deg)`,
-          fontFamily: family.cssFamily,
-          fontSize: overlay.size * scale,
-          lineHeight: TEXT_LINE_HEIGHT,
-          fontWeight: overlay.bold ? 700 : 400,
-          fontStyle: overlay.italic ? 'italic' : 'normal',
-          color: overlay.color,
-          whiteSpace: 'pre',
-          userSelect: editable ? 'text' : 'none',
-          cursor: editable ? 'text' : base.cursor,
+          transformOrigin: base.transformOrigin,
+          transition: smoothTransition,
         }}
-      />
+      >
+        <div
+          {...pointerHandlers}
+          onClick={(e) => e.stopPropagation()}
+          ref={textRef}
+          contentEditable={editable}
+          suppressContentEditableWarning
+          onInput={editable ? handleTextInput : undefined}
+          onBlur={editable ? handleTextBlur : undefined}
+          onKeyDown={editable ? handleTextKeyDown : undefined}
+          style={{
+            fontFamily: family.cssFamily,
+            fontSize: overlay.size * scale,
+            lineHeight: TEXT_LINE_HEIGHT,
+            fontWeight: overlay.bold ? 700 : 400,
+            fontStyle: overlay.italic ? 'italic' : 'normal',
+            color: overlay.color,
+            whiteSpace: 'pre',
+            userSelect: editable ? 'text' : 'none',
+            cursor: editable ? 'text' : base.cursor,
+            boxShadow: base.boxShadow,
+            touchAction: base.touchAction,
+            // The wrapper transitions left/top for the same zoom-follow reason
+            // — without this too, font-size would jump to each new step
+            // instantly while position glides, the mismatch that made edited
+            // text look like it was wobbling during a zoom.
+            transition: smoothTransition,
+          }}
+        />
+        {selected && interactive && (
+          <button
+            type="button"
+            onPointerDown={handleMoveHandlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handleMoveHandlePointerUp}
+            onPointerCancel={handleMoveHandlePointerUp}
+            onClick={(e) => e.stopPropagation()}
+            title="Segure e arraste para mover"
+            aria-label="Mover texto"
+            style={{
+              position: 'absolute',
+              right: -14,
+              bottom: -14,
+              width: 28,
+              height: 28,
+              padding: 0,
+              borderRadius: '50%',
+              border: '2px solid #FFFFFF',
+              background: 'var(--color-accent)',
+              color: '#FFFFFF',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: isInteracting ? 'grabbing' : 'grab',
+              boxShadow: 'var(--shadow-sm)',
+              touchAction: 'none',
+            }}
+          >
+            <Move size={14} strokeWidth={2.75} />
+          </button>
+        )}
+      </div>
     );
   }
 

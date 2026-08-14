@@ -1,4 +1,4 @@
-import { Check, Circle, Palette, Pipette, RotateCw, Square, Trash2 } from 'lucide-react';
+import { Check, Circle, Move, Palette, Pipette, RotateCw, Square, Trash2 } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { useApp } from '../../state/AppContext';
 import { SUBSTITUTE_FAMILIES } from '../../pdf/fonts';
@@ -71,6 +71,15 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
         <Swatches colors={TEXT_COLORS} value={overlay.color} onChange={(color) => update({ color })} />
 
         <RotationSlider value={overlay.rotation} onChange={(rotation) => actions.updateOverlay(overlay.id, { rotation }, false)} onCommit={(rotation) => update({ rotation })} />
+
+        {/* A plain click on selected text places a caret to edit it in place —
+            dragging it needs its own mode so a press-and-drag to reposition
+            isn't misread as a text selection. Image/shape overlays don't need
+            this since they have no in-place text to protect. */}
+        <Button block onClick={() => actions.setMovingOverlay(overlay.id)}>
+          <Move size={16} strokeWidth={2.75} />
+          Mover texto
+        </Button>
 
         <Button block onClick={() => actions.removeOverlay(overlay.id)}>
           <Trash2 size={16} strokeWidth={2.75} />

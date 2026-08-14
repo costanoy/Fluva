@@ -52,6 +52,13 @@ export function Toolbar() {
 
       <div className="toolbar-spacer" />
 
+      <Button icon disabled={!state.history.length || busy} title="Desfazer (Ctrl+Z)" onClick={actions.undo}>
+        <Undo2 size={15} strokeWidth={2.75} />
+      </Button>
+      <Button icon disabled={!state.future.length || busy} title="Refazer (Ctrl+Shift+Z)" onClick={actions.redo}>
+        <Redo2 size={15} strokeWidth={2.75} />
+      </Button>
+
       <div className="toolbar-zoom">
         <Search size={15} strokeWidth={2.5} aria-label="Zoom" />
         <input
@@ -67,13 +74,6 @@ export function Toolbar() {
         />
         <span className="toolbar-zoom-value">{Math.round(state.effectiveZoom * 100)}%</span>
       </div>
-
-      <Button icon disabled={!state.history.length || busy} title="Desfazer (Ctrl+Z)" onClick={actions.undo}>
-        <Undo2 size={15} strokeWidth={2.75} />
-      </Button>
-      <Button icon disabled={!state.future.length || busy} title="Refazer (Ctrl+Shift+Z)" onClick={actions.redo}>
-        <Redo2 size={15} strokeWidth={2.75} />
-      </Button>
     </div>
   );
 }
