@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { Move } from 'lucide-react';
-import { TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT } from '../pdf/build';
+import { TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT } from '../pdf/geometry';
 import { familyByKey } from '../pdf/fonts';
 import { safeSetPointerCapture, screenDeltaToPage } from './OverlayLayer';
 import type { Rect, WorkPage } from '../pdf/model';
@@ -98,14 +98,15 @@ export function TextRunPreview({ page, scale }: { page: WorkPage; scale: number 
     const drag = dragRef.current;
     dragRef.current = null;
     setIsDraggingHandle(false);
+    const originalFontKey = draft.useOriginalFont ? target.originalFontKey : undefined;
     if (drag?.moved) {
       // Committed already at the dragged position — no need for the
       // separate "Movendo texto" mode afterward, the move already happened.
-      actions.replaceTextRun(bounds, draft.text, draft.fontKey, draft.size, draft.bold, draft.italic, false, dragOffsetRef.current);
+      actions.replaceTextRun(bounds, draft.text, draft.fontKey, draft.size, draft.bold, draft.italic, false, dragOffsetRef.current, originalFontKey);
       dragOffsetRef.current = { dx: 0, dy: 0 };
       setDragOffset({ dx: 0, dy: 0 });
     } else {
-      actions.replaceTextRun(bounds, draft.text, draft.fontKey, draft.size, draft.bold, draft.italic, true);
+      actions.replaceTextRun(bounds, draft.text, draft.fontKey, draft.size, draft.bold, draft.italic, true, undefined, originalFontKey);
     }
   };
 

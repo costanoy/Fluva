@@ -1,17 +1,8 @@
-import { degrees, PDFDocument, rgb, type PDFPage, type PDFImage } from 'pdf-lib';
+import { degrees, PDFDocument, rgb, type PDFFont, type PDFPage, type PDFImage } from 'pdf-lib';
 import type { DocumentState, ImageAsset, Overlay, WatermarkConfig, WorkPage } from './model';
-import { createFontSet, sanitizeForStandardFont } from './fonts';
-import { displayRectToRaw, displayToRaw, hexToRgb, normalizeRotation, type Quarter } from './geometry';
-
-/**
- * A text overlay's `y` is the top of its first line. Dropping this fraction of the
- * font size lands on the baseline pdf-lib draws from, and matches where a browser
- * puts the baseline inside a 1.2 line-height box, so preview and output line up.
- */
-export const TEXT_BASELINE_RATIO = 0.85;
-
-/** Line spacing used for multi-line text overlays, in both preview and output. */
-export const TEXT_LINE_HEIGHT = 1.2;
+import { createFontSet, fontSupportsText, sanitizeForStandardFont } from './fonts';
+import { resolveOriginalFontBytes } from './textExtract';
+import { displayRectToRaw, displayToRaw, hexToRgb, normalizeRotation, TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT, type Quarter } from './geometry';
 
 /**
  * Assembles the real output PDF from the source files plus the recorded edits.
@@ -26,6 +17,18 @@ export async function buildPdf(doc: DocumentState): Promise<Uint8Array> {
   // image is embedded once.
   const sourceDocs = new Map<string, PDFDocument>();
   const embeddedImages = new Map<string, PDFImage>();
+  // Cache per (page, pdf.js font key) so several runs sharing one original
+  // font resource don't each re-parse that page's operator list.
+  const originalFontBytes = new Map<string, Promise<Uint8Array | null>>();
+  const resolveFontBytes = (workPage: WorkPage, pdfFontKey: string): Promise<Uint8Array | null> => {
+    const key = `${workPage.sourceId}:${workPage.sourceIndex}:${pdfFontKey}`;
+    let entry = originalFontBytes.get(key);
+    if (!entry) {
+      entry = resolveOriginalFontBytes(doc, workPage, pdfFontKey);
+      originalFontBytes.set(key, entry);
+    }
+    return entry;
+  };
 
   const loadSource = async (sourceId: string): Promise<PDFDocument | null> => {
     const cached = sourceDocs.get(sourceId);
@@ -86,7 +89,7 @@ export async function buildPdf(doc: DocumentState): Promise<Uint8Array> {
 
     const overlays = withWatermark(doc, page);
     for (const overlay of overlays) {
-      await drawOverlay(outPage, overlay, sourceRotation, rawW, rawH, fonts, embedAsset);
+      await drawOverlay(outPage, overlay, sourceRotation, rawW, rawH, fonts, embedAsset, page, resolveFontBytes);
     }
 
     // Crop after drawing: the content stream uses absolute user-space coordinates,
@@ -182,13 +185,37 @@ async function drawOverlay(
   rawH: number,
   fonts: ReturnType<typeof createFontSet>,
   embedAsset: (id: string) => Promise<PDFImage | null>,
+  workPage: WorkPage,
+  resolveFontBytes: (workPage: WorkPage, pdfFontKey: string) => Promise<Uint8Array | null>,
 ) {
   const isWatermark = overlay.id === 'watermark';
   const opacity = isWatermark ? 0.35 : 1;
 
   if (overlay.kind === 'text') {
-    const font = await fonts.get(overlay.fontKey, overlay.bold, overlay.italic);
-    const text = sanitizeForStandardFont(overlay.text);
+    // The original font, byte-for-byte reused from the source PDF, is tried
+    // first when the run asked for it — it's wrapped in its own try/catch
+    // (via `fonts.getOriginal`) and re-checked against every character the
+    // run actually needs, so any failure (an unparseable program, a glyph
+    // outside the subset the original PDF embedded) falls back to the usual
+    // substitute silently rather than breaking the export.
+    let font: PDFFont | null = null;
+    let usingOriginal = false;
+    if (overlay.originalFontKey) {
+      const bytes = await resolveFontBytes(workPage, overlay.originalFontKey);
+      if (bytes && (await fontSupportsText(bytes, overlay.text))) {
+        const cacheKey = `${workPage.sourceId}:${workPage.sourceIndex}:${overlay.originalFontKey}`;
+        const original = await fonts.getOriginal(cacheKey, bytes);
+        if (original) {
+          font = original;
+          usingOriginal = true;
+        }
+      }
+    }
+    if (!font) font = await fonts.get(overlay.fontKey, overlay.bold, overlay.italic);
+    // Standard/substitute fonts are WinAnsi-only and throw on anything outside
+    // it; the original font, reused as-is from the source PDF, was never
+    // subject to that restriction and may cover a wider character set.
+    const text = usingOriginal ? overlay.text : sanitizeForStandardFont(overlay.text);
     if (!text) return;
     const lines = text.split('\n');
     const lineHeight = overlay.size * TEXT_LINE_HEIGHT;

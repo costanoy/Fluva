@@ -40,6 +40,13 @@ export interface TextOverlay {
   y: number;
   text: string;
   fontKey: string;
+  /** pdf.js's internal key for the original PDF text run's own embedded font
+   * (see `TextItem.originalFontKey`), set only when this overlay should draw
+   * with that original font instead of `fontKey`'s substitute — resolved
+   * against the overlay's own page at build time (see `build.ts`), with a
+   * silent fallback to `fontKey` if extraction or embedding fails for any
+   * reason (missing glyphs, an unparseable font program, etc). */
+  originalFontKey?: string;
   size: number;
   bold: boolean;
   italic: boolean;

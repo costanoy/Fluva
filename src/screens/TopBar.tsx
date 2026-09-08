@@ -8,6 +8,7 @@ import { useApp } from '../state/AppContext';
 import { buildPixPayload, normalizePixKey } from '../pix';
 import { t, type Lang } from '../i18n/translations';
 import { ExportDropdown } from './ExportDropdown';
+import { SignDialog } from '../components/SignDialog';
 import '../styles/top-bar.css';
 
 const PIX_PAYLOAD = buildPixPayload({ key: normalizePixKey('142.353.286-46'), name: 'VINICIUS COSTA', city: 'BRASILIA' });
@@ -70,6 +71,7 @@ export function TopBar() {
   const { state, actions } = useApp();
   const isEditing = state.screen === 'editing';
   const isHome = state.screen === 'empty';
+  const hasHistoryBreadcrumb = isEditing || state.screen === 'reading';
   const [donateOpen, setDonateOpen] = useState(false);
 
   return (
@@ -121,7 +123,7 @@ export function TopBar() {
           // with pressing Back for real (see App.tsx's popstate handler).
           if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
           e.preventDefault();
-          if (isEditing) window.history.back();
+          if (hasHistoryBreadcrumb) window.history.back();
           else actions.reset();
         }}
         title={t('topbar.backHome')}
@@ -164,6 +166,8 @@ export function TopBar() {
           <PixQrCode />
         </Dialog>
       )}
+
+      {state.signDialogOpen && <SignDialog />}
     </div>
   );
 }

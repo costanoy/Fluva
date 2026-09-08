@@ -1,4 +1,4 @@
-import { Move, Wand2 } from 'lucide-react';
+import { Check, Move, Wand2 } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { useApp } from '../../state/AppContext';
 import { SUBSTITUTE_FAMILIES, familyByKey } from '../../pdf/fonts';
@@ -19,15 +19,17 @@ export function TextRunPanel() {
   const draft = state.textRunDraft;
 
   if (!target || !draft) return null;
-  const { text, fontKey, size, bold, italic } = draft;
+  const { text, fontKey, size, bold, italic, useOriginalFont } = draft;
   const family = familyByKey(fontKey);
+  const hasOriginalFont = !!target.originalFontKey;
 
   // replaceTextRun clears textRunTarget/textRunDraft itself once the
   // replacement overlay actually exists — clearing it here first would leave
   // a gap where this panel had already unmounted but nothing had replaced it
   // yet.
   const detachFromPage = (bounds: Rect, enterMoveMode = false) => {
-    actions.replaceTextRun(bounds, text, fontKey, size, bold, italic, enterMoveMode);
+    const originalFontKey = useOriginalFont ? target.originalFontKey : undefined;
+    actions.replaceTextRun(bounds, text, fontKey, size, bold, italic, enterMoveMode, undefined, originalFontKey);
   };
 
   return (
@@ -45,34 +47,63 @@ export function TextRunPanel() {
         </span>
       </div>
 
-      <div className="panel-label">{t('run.substituteFont')}</div>
-      <div className="font-option-list">
-        {SUBSTITUTE_FAMILIES.map((f) => (
-          <button
-            key={f.key}
-            className="font-option"
-            style={{ background: f.key === fontKey ? 'var(--color-accent-100)' : 'transparent' }}
-            onClick={() => actions.setTextRunDraft({ fontKey: f.key })}
+      {hasOriginalFont && (
+        <button
+          className="panel-group-subaction"
+          style={{
+            border: '1px solid var(--color-divider)',
+            justifyContent: 'flex-start',
+            background: useOriginalFont ? 'var(--color-accent-100)' : undefined,
+          }}
+          title={t('run.useOriginalFontTitle')}
+          onClick={() => actions.setTextRunDraft({ useOriginalFont: !useOriginalFont })}
+        >
+          <span
+            className="merge-checkbox"
+            style={{
+              borderColor: useOriginalFont ? 'var(--color-accent)' : 'var(--color-neutral-400)',
+              background: useOriginalFont ? 'var(--color-accent)' : 'transparent',
+            }}
           >
-            <span style={{ fontFamily: f.cssFamily, fontWeight: 700 }}>{f.label}</span>
-            <span style={{ color: 'var(--color-neutral-600)', fontSize: 13 }}>{t('run.inPlaceOf', { names: f.metricMatches.slice(0, 2).join(', ') })}</span>
-          </button>
-        ))}
-      </div>
+            {useOriginalFont && <Check size={10} strokeWidth={3.5} color="#fff" />}
+          </span>
+          {t('run.useOriginalFont')}
+        </button>
+      )}
 
-      <button
-        className="panel-group-subaction"
-        style={{ justifyContent: 'center', border: '1px dashed var(--color-divider)' }}
-        title={t('run.applyFontTitle')}
-        onClick={() => actions.applyFontToMatchingRuns(target.originalFont, fontKey, target.id)}
-      >
-        <Wand2 size={14} strokeWidth={2.5} />
-        {t('run.applyFontToDoc')}
-      </button>
+      {!useOriginalFont && (
+        <>
+          <div className="panel-label">{t('run.substituteFont')}</div>
+          <div className="font-option-list">
+            {SUBSTITUTE_FAMILIES.map((f) => (
+              <button
+                key={f.key}
+                className="font-option"
+                style={{ background: f.key === fontKey ? 'var(--color-accent-100)' : 'transparent' }}
+                onClick={() => actions.setTextRunDraft({ fontKey: f.key })}
+              >
+                <span style={{ fontFamily: f.cssFamily, fontWeight: 700 }}>{f.label}</span>
+                <span style={{ color: 'var(--color-neutral-600)', fontSize: 13 }}>{t('run.inPlaceOf', { names: f.metricMatches.slice(0, 2).join(', ') })}</span>
+              </button>
+            ))}
+          </div>
+
+          <button
+            className="panel-group-subaction"
+            style={{ justifyContent: 'center', border: '1px dashed var(--color-divider)' }}
+            title={t('run.applyFontTitle')}
+            onClick={() => actions.applyFontToMatchingRuns(target.originalFont, fontKey, target.id)}
+          >
+            <Wand2 size={14} strokeWidth={2.5} />
+            {t('run.applyFontToDoc')}
+          </button>
+        </>
+      )}
 
       <div className="font-preview" style={{ fontFamily: family.cssFamily, fontWeight: bold ? 700 : 400, fontStyle: italic ? 'italic' : 'normal' }}>
         {text.split('\n')[0] || 'Aa Bb Cc'}
       </div>
+      {useOriginalFont && <div className="panel-note panel-note-quiet">{t('run.originalFontPreviewNote')}</div>}
 
       <div className="panel-label">{t('overlay.size')}</div>
       <div className="panel-row">

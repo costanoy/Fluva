@@ -19,6 +19,14 @@ const pt = {
   'home.cancel': 'Cancelar',
   'home.convertAndDownload': 'Converter e baixar',
 
+  // ---- reader (fast single-file viewer, the default landing after a drop) ----
+  'reader.pageOf': '{n} de {total}',
+  'reader.loading': 'Carregando…',
+  'reader.prevPage': 'Página anterior',
+  'reader.nextPage': 'Próxima página',
+  'reader.zoomOut': 'Diminuir zoom',
+  'reader.zoomIn': 'Aumentar zoom',
+
   // ---- beta / "test the app" screen ----
   'beta.title': 'Teste o nosso aplicativo!',
   'beta.body':
@@ -123,6 +131,9 @@ const pt = {
   'run.originalFont': 'Fonte original',
   'run.exactMatch': 'substituta com métrica idêntica',
   'run.approxMatch': 'substituta aproximada',
+  'run.useOriginalFont': 'Manter fonte original',
+  'run.useOriginalFontTitle': 'Usa a mesma fonte já embutida neste PDF, em vez de uma substituta parecida — o resultado fica visualmente idêntico ao texto original',
+  'run.originalFontPreviewNote': 'A pré-visualização acima usa uma fonte parecida; o arquivo exportado usará a fonte original do PDF.',
   'run.substituteFont': 'Fonte substituta',
   'run.inPlaceOf': ' — no lugar de {names}',
   'run.applyFontToDoc': 'Aplicar esta fonte a todo o documento',
@@ -269,6 +280,25 @@ const pt = {
 
   // ---- docx export ----
   'export.docxNoExtractableText': '[Página {n} não contém texto extraível]',
+
+  // ---- digital signature (PAdES) ----
+  'sign.title': 'Assinatura digital',
+  'sign.legalNote':
+    'A validade jurídica da assinatura depende inteiramente do certificado ser genuinamente emitido pela ICP-Brasil — o Fluva não emite nem gerencia certificados, apenas empacota a assinatura corretamente a partir do seu.',
+  'sign.certificateLabel': 'Certificado (.pfx ou .p12)',
+  'sign.chooseFile': 'Escolher arquivo',
+  'sign.passwordLabel': 'Senha do certificado',
+  'sign.passwordNote': 'A senha nunca sai do seu navegador — nada é enviado para nenhum servidor.',
+  'sign.signButton': 'Assinar e baixar',
+  'sign.signing': 'Assinando…',
+  'sign.selectCertificateFirst': 'Selecione o arquivo do certificado.',
+  'sign.enterPasswordFirst': 'Digite a senha do certificado.',
+  'sign.placeholderNotFound': 'Não foi possível preparar o PDF para assinatura.',
+  'sign.wrongPasswordOrFile': 'Senha incorreta ou arquivo de certificado inválido.',
+  'sign.noPrivateKey': 'Não foi possível encontrar a chave privada no certificado.',
+  'sign.noCertificate': 'Não foi possível encontrar um certificado válido no arquivo.',
+  'sign.signatureTooLarge': 'A assinatura gerada é maior do que o esperado para este certificado.',
+  'sign.success': '{name}_assinado.pdf exportado.',
 } as const;
 
 export type TranslationKey = keyof typeof pt;
@@ -285,6 +315,14 @@ const en: Record<TranslationKey, string> = {
   'home.convertAllTo': 'Convert all to',
   'home.cancel': 'Cancel',
   'home.convertAndDownload': 'Convert and download',
+
+  // ---- reader (fast single-file viewer, the default landing after a drop) ----
+  'reader.pageOf': '{n} of {total}',
+  'reader.loading': 'Loading…',
+  'reader.prevPage': 'Previous page',
+  'reader.nextPage': 'Next page',
+  'reader.zoomOut': 'Zoom out',
+  'reader.zoomIn': 'Zoom in',
 
   // ---- beta / "test the app" screen ----
   'beta.title': 'Try our app!',
@@ -390,6 +428,9 @@ const en: Record<TranslationKey, string> = {
   'run.originalFont': 'Original font',
   'run.exactMatch': 'substitute with identical metrics',
   'run.approxMatch': 'approximate substitute',
+  'run.useOriginalFont': 'Keep original font',
+  'run.useOriginalFontTitle': "Uses the font already embedded in this PDF instead of a look-alike substitute — the result matches the original text's letterforms exactly",
+  'run.originalFontPreviewNote': 'The preview above uses a close substitute; the exported file will use the PDF\'s original font.',
   'run.substituteFont': 'Substitute font',
   'run.inPlaceOf': ' — in place of {names}',
   'run.applyFontToDoc': 'Apply this font to the whole document',
@@ -536,6 +577,25 @@ const en: Record<TranslationKey, string> = {
 
   // ---- docx export ----
   'export.docxNoExtractableText': '[Page {n} contains no extractable text]',
+
+  // ---- digital signature (PAdES) ----
+  'sign.title': 'Digital signature',
+  'sign.legalNote':
+    "The signature's legal standing depends entirely on the certificate being genuinely issued by ICP-Brasil (Brazil's PKI) — Fluva doesn't issue or manage certificates, it only packages the signature correctly using yours.",
+  'sign.certificateLabel': 'Certificate (.pfx or .p12)',
+  'sign.chooseFile': 'Choose file',
+  'sign.passwordLabel': 'Certificate password',
+  'sign.passwordNote': "The password never leaves your browser — nothing is sent to any server.",
+  'sign.signButton': 'Sign and download',
+  'sign.signing': 'Signing…',
+  'sign.selectCertificateFirst': 'Select the certificate file.',
+  'sign.enterPasswordFirst': "Enter the certificate's password.",
+  'sign.placeholderNotFound': 'Could not prepare the PDF for signing.',
+  'sign.wrongPasswordOrFile': 'Wrong password or invalid certificate file.',
+  'sign.noPrivateKey': 'Could not find a private key in the certificate.',
+  'sign.noCertificate': 'Could not find a valid certificate in the file.',
+  'sign.signatureTooLarge': 'The generated signature is larger than expected for this certificate.',
+  'sign.success': '{name}_signed.pdf exported.',
 };
 
 const dictionaries: Record<Lang, Record<TranslationKey, string>> = { pt, en };

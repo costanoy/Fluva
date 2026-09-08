@@ -1,4 +1,4 @@
-import { Check, FileText, Image as ImageIcon } from 'lucide-react';
+import { Check, FileText, Image as ImageIcon, PenLine } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { t } from '../i18n/translations';
 import type { ExportFormat } from '../pdf/exporters';
@@ -50,6 +50,13 @@ export function ExportDropdown() {
           <h6 className="export-heading">{t('export.orConvertTo')}</h6>
           <Row format="docx" icon={<FileText size={17} strokeWidth={2.75} />} label={t('export.word')} badge={t('export.beta')} />
         </>
+      )}
+
+      {isPdf && (
+        <button className="export-row" onClick={() => actions.setSignDialogOpen(true)} disabled={!!state.busy}>
+          <PenLine size={17} strokeWidth={2.75} />
+          <span className="export-row-label">{t('sign.title')}</span>
+        </button>
       )}
     </div>
   );

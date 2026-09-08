@@ -34,19 +34,30 @@ export default defineConfig({
         // about the next dependency bump silently dropping a chunk from the
         // precache instead of failing the build loudly.
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // The default navigateFallback sends every direct navigation to
+        // index.html — right for a bookmarked/offline app reload, wrong for
+        // a bot or a browser fetching a real static file at the root
+        // (robots.txt, sitemap.xml, the OG share image): without this, a
+        // visitor whose browser already has the service worker installed
+        // gets the app shell back instead of the actual file.
+        navigateFallbackDenylist: [/^\/robots\.txt$/, /^\/sitemap\.xml$/, /^\/og-image\.png$/, /^\/manifest\.webmanifest$/],
       },
     }),
   ],
   build: {
     rollupOptions: {
       output: {
-        // The PDF libraries are large and change far less often than app code.
-        // Splitting them keeps their chunks cached across deploys.
+        // pdfjs-dist and react are needed eagerly (the reader renders pages
+        // with pdf.js on first load), so they're still worth pulling into
+        // their own named, long-cacheable vendor chunks. pdf-lib/fontkit and
+        // docx are deliberately NOT listed here — they're only ever reached
+        // through a dynamic import() now (see useFluvaStore.ts/fonts.ts), and
+        // the object form of manualChunks was forcing Vite to still treat
+        // them as always-preloaded from the entry HTML regardless, which
+        // defeated the whole point of deferring them. Leaving them out lets
+        // Rollup's automatic splitting place them in genuinely async chunks.
         manualChunks: {
           pdfjs: ['pdfjs-dist'],
-          pdflib: ['pdf-lib', '@pdf-lib/fontkit'],
-          // Only pulled in when the user exports to Word.
-          docx: ['docx'],
           react: ['react', 'react-dom'],
         },
       },

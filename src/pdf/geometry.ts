@@ -1,5 +1,20 @@
 import type { Rect } from './model';
 
+/**
+ * A text overlay's `y` is the top of its first line. Dropping this fraction of the
+ * font size lands on the baseline pdf-lib draws from, and matches where a browser
+ * puts the baseline inside a 1.2 line-height box, so preview and output line up.
+ *
+ * Lives here (not in build.ts, where it's mainly used) so components that only
+ * need this small geometry constant don't have to import pdf-lib along with it —
+ * `build.ts` pulls in pdf-lib itself, which `useFluvaStore.ts` needs to keep out
+ * of its own module-level imports so it doesn't load for every screen.
+ */
+export const TEXT_BASELINE_RATIO = 0.85;
+
+/** Line spacing used for multi-line text overlays, in both preview and output. */
+export const TEXT_LINE_HEIGHT = 1.2;
+
 export type Quarter = 0 | 90 | 180 | 270;
 
 export function normalizeRotation(deg: number): Quarter {

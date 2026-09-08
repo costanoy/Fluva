@@ -11,10 +11,10 @@ import {
   type WorkPage,
 } from '../pdf/model';
 import { formatBytes, isAcceptedFile, loadFile, readImageSize, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
-import { buildPdf, TEXT_BASELINE_RATIO } from '../pdf/build';
+import { TEXT_BASELINE_RATIO } from '../pdf/geometry';
 import { canvasToBlob, rasterizePdf, releaseAll } from '../pdf/render';
-import { compressDocument, extractSelectedPages, splitByRanges, splitEveryPage, splitIntoParts, type CompressLevel } from '../pdf/ops';
-import { baseNameFor, downloadBytes, exportAsDocx, exportAsImages, exportAsPdf, zipFiles, type ExportFormat } from '../pdf/exporters';
+import type { CompressLevel, SplitResult } from '../pdf/ops';
+import type { ExportFormat } from '../pdf/exporters';
 import { DEFAULT_FAMILY_KEY, cleanFontName, familyByKey, matchSubstitute } from '../pdf/fonts';
 import { extractPageText, sampleRunColors, type SampledColors } from '../pdf/textExtract';
 import { getLang, setLang as setGlobalLang, t, type Lang } from '../i18n/translations';
@@ -36,6 +36,7 @@ const initialState: AppState = {
   lang: getLang(),
   screen: 'empty',
   doc: emptyDocument(),
+  readerFile: null,
   spareSourceIds: [],
   queue: [],
   activePageIndex: 0,
@@ -53,6 +54,7 @@ const initialState: AppState = {
   dirty: false,
   exportOpen: false,
   exportFormat: 'pdf',
+  signDialogOpen: false,
   mergeSelected: [],
   splitMode: 'range',
   splitRangeSubMode: 'auto',
@@ -190,6 +192,7 @@ export function useFluvaStore() {
       bold: boolean,
       italic: boolean,
       colors: SampledColors = { color: '#2C2C2A', backgroundColor: '#FFFFFF' },
+      originalFontKey?: string,
     ) => {
       const originalBaseline = bounds.y + bounds.height / 6;
       const cover: Overlay = {
@@ -208,6 +211,7 @@ export function useFluvaStore() {
         y: originalBaseline + size * TEXT_BASELINE_RATIO,
         text,
         fontKey,
+        originalFontKey,
         size,
         bold,
         italic,
@@ -242,6 +246,7 @@ export function useFluvaStore() {
       const unchanged =
         draft.text === target.text &&
         draft.fontKey === target.substituteKey &&
+        draft.useOriginalFont === !!target.originalFontKey &&
         draft.size === Math.round(target.fontSize * 10) / 10 &&
         draft.bold === target.bold &&
         draft.italic === target.italic;
@@ -256,13 +261,14 @@ export function useFluvaStore() {
       }
       const pageId = page.id;
       const bounds: Rect = { x: target.x, y: target.y, width: target.width, height: target.height };
+      const originalFontKey = draft.useOriginalFont ? target.originalFontKey : undefined;
       set({ textRunTarget: null, textRunDraft: null });
       sampleRunColors(st.doc, page, [bounds]).then(([colors]) => {
         mutate((cur) => {
           const idx = cur.doc.pages.findIndex((p) => p.id === pageId);
           if (idx === -1) return null; // the page was deleted while colors were sampling
           const targetPage = cur.doc.pages[idx];
-          const { cover, replacement } = buildTextReplacementOverlays(bounds, draft.text, draft.fontKey, draft.size, draft.bold, draft.italic, colors);
+          const { cover, replacement } = buildTextReplacementOverlays(bounds, draft.text, draft.fontKey, draft.size, draft.bold, draft.italic, colors, originalFontKey);
           const nextPage = { ...targetPage, overlays: [...targetPage.overlays, cover, replacement] };
           const pages = cur.doc.pages.map((p, i) => (i === idx ? nextPage : p));
           return { doc: { ...cur.doc, pages } };
@@ -317,8 +323,19 @@ export function useFluvaStore() {
           }
           accepted.push({ id: newId('q'), file, name: file.name, size: file.size, kind: fileKind(file) });
         }
-        set((st) => ({
-          queue: st.queue.concat(accepted),
+        const st = stateRef.current;
+        // A single clean file (nothing rejected alongside it, nothing already
+        // queued) goes straight into the fast reader — the common case, and
+        // the whole point of "reader first". Once there's more than one file
+        // in play, viewing them as a single reading session no longer makes
+        // sense, so it falls back to the existing queue + chooser (merge on
+        // edit, or batch convert).
+        if (accepted.length === 1 && !rejected.length && !st.queue.length) {
+          set({ screen: 'reading', readerFile: accepted[0].file, error: null });
+          return;
+        }
+        set((cur) => ({
+          queue: cur.queue.concat(accepted),
           error: rejected.length ? t('store.ignored', { list: rejected.join('; ') }) : null,
         }));
       },
@@ -387,11 +404,37 @@ export function useFluvaStore() {
         });
       },
 
+      /** Hands the file currently open in the reader off to the full editor —
+       * reuses `openQueue` verbatim rather than duplicating its parsing/opening
+       * logic, by seeding the queue with the one file exactly as `addFiles`
+       * would have, had this not gone straight to the reader. */
+      openReaderFileInEditor: async () => {
+        const file = stateRef.current.readerFile;
+        if (!file) return;
+        set({ queue: [{ id: newId('q'), file, name: file.name, size: file.size, kind: fileKind(file) }] });
+        await actions.openQueue();
+      },
+
+      /** Same idea as `openReaderFileInEditor`, for the reader's "Alterar
+       * formato" shortcut — reuses `convertQueue` verbatim. */
+      convertReaderFile: async (target: 'pdf' | 'png' | 'jpg') => {
+        const file = stateRef.current.readerFile;
+        if (!file) return;
+        set({ queue: [{ id: newId('q'), file, name: file.name, size: file.size, kind: fileKind(file) }] });
+        await actions.convertQueue(target);
+        set({ queue: [] });
+      },
+
       /** Converts every queued file to the chosen format and downloads the result. */
       convertQueue: async (target: 'pdf' | 'png' | 'jpg') => {
         const queue = stateRef.current.queue;
         if (!queue.length) return;
         await withBusy(t('store.convertingTo', { format: target.toUpperCase() }), async (progress) => {
+          // Loaded on demand rather than at module load — pdf-lib/docx would
+          // otherwise ship in every screen's initial bundle, including the
+          // reader and home screen, which never need them.
+          const { buildPdf } = await import('../pdf/build');
+          const { downloadBytes, zipFiles } = await import('../pdf/exporters');
           const outputs: Array<{ name: string; bytes: Uint8Array }> = [];
 
           for (let i = 0; i < queue.length; i++) {
@@ -662,6 +705,7 @@ export function useFluvaStore() {
         italic: boolean,
         enterMoveMode = false,
         offset: { dx: number; dy: number } = { dx: 0, dy: 0 },
+        originalFontKey?: string,
       ) => {
         const st = stateRef.current;
         const page = currentPage(st);
@@ -673,7 +717,7 @@ export function useFluvaStore() {
             const idx = cur.doc.pages.findIndex((p) => p.id === pageId);
             if (idx === -1) return null;
             const targetPage = cur.doc.pages[idx];
-            const { cover, replacement } = buildTextReplacementOverlays(bounds, text, fontKey, size, bold, italic, colors);
+            const { cover, replacement } = buildTextReplacementOverlays(bounds, text, fontKey, size, bold, italic, colors, originalFontKey);
             replacement.x += offset.dx;
             replacement.y += offset.dy;
             const nextPage = { ...targetPage, overlays: [...targetPage.overlays, cover, replacement] };
@@ -696,7 +740,14 @@ export function useFluvaStore() {
         set({
           textRunTarget: item,
           textRunDraft: item
-            ? { text: item.text, fontKey: item.substituteKey, size: Math.round(item.fontSize * 10) / 10, bold: item.bold, italic: item.italic }
+            ? {
+                text: item.text,
+                fontKey: item.substituteKey,
+                useOriginalFont: !!item.originalFontKey,
+                size: Math.round(item.fontSize * 10) / 10,
+                bold: item.bold,
+                italic: item.italic,
+              }
             : null,
         }),
 
@@ -915,8 +966,10 @@ export function useFluvaStore() {
       runSplit: async () => {
         const st = stateRef.current;
         await withBusy(t('store.dividing'), async () => {
+          const { splitByRanges, splitEveryPage, splitIntoParts, extractSelectedPages } = await import('../pdf/ops');
+          const { baseNameFor, downloadBytes, zipFiles } = await import('../pdf/exporters');
           const baseName = baseNameFor(st.doc);
-          let results: Awaited<ReturnType<typeof splitEveryPage>> = [];
+          let results: SplitResult[] = [];
           let message = '';
 
           if (st.splitMode === 'range') {
@@ -958,6 +1011,7 @@ export function useFluvaStore() {
       runCompress: async () => {
         const st = stateRef.current;
         await withBusy(t('store.compressing'), async (progress) => {
+          const { compressDocument } = await import('../pdf/ops');
           const result = await compressDocument(st.doc, st.compressLevel, progress);
           set({
             compressOutcome: {
@@ -972,9 +1026,10 @@ export function useFluvaStore() {
         });
       },
 
-      downloadCompressed: () => {
+      downloadCompressed: async () => {
         const outcome = stateRef.current.compressOutcome;
         if (!outcome) return;
+        const { baseNameFor, downloadBytes } = await import('../pdf/exporters');
         downloadBytes(outcome.bytes, `${baseNameFor(stateRef.current.doc)}_comprimido.pdf`, 'application/pdf');
       },
 
@@ -986,6 +1041,7 @@ export function useFluvaStore() {
 
       runExport: async (format: ExportFormat) => {
         const st = stateRef.current;
+        const { baseNameFor, exportAsDocx, exportAsImages, exportAsPdf } = await import('../pdf/exporters');
         const base = baseNameFor(st.doc);
         set({ exportOpen: false });
         await withBusy(t('store.exporting'), async (progress) => {
@@ -1019,6 +1075,41 @@ export function useFluvaStore() {
       },
 
       dismissToast: () => set({ toast: null }),
+
+      /* ------------------------------------------------------------------ sign */
+
+      setSignDialogOpen: (open: boolean) => set({ signDialogOpen: open, exportOpen: false }),
+
+      /** Bakes the current document, signs it with the user's own certificate,
+       * and downloads the result — the certificate and password only ever
+       * exist in memory for this one call (see `pdf/sign.ts`). Errors surface
+       * through the normal `state.error` banner, same as every other action
+       * here; `SignDialog` just watches `state.busy` to close itself once this
+       * settles, success or not, so that banner isn't left hidden behind it. */
+      signAndDownload: async (pfxFile: File, password: string) => {
+        const st = stateRef.current;
+        if (!pfxFile) {
+          set({ toast: t('sign.selectCertificateFirst') });
+          return;
+        }
+        if (!password) {
+          set({ toast: t('sign.enterPasswordFirst') });
+          return;
+        }
+        await withBusy(t('sign.signing'), async () => {
+          const [{ buildPdf }, { baseNameFor, downloadBytes }, { signPdf }] = await Promise.all([
+            import('../pdf/build'),
+            import('../pdf/exporters'),
+            import('../pdf/sign'),
+          ]);
+          const pdfBytes = await buildPdf(st.doc);
+          const pfxBytes = new Uint8Array(await pfxFile.arrayBuffer());
+          const signed = await signPdf(pdfBytes, pfxBytes, password);
+          const base = baseNameFor(st.doc);
+          downloadBytes(signed, `${base}_assinado.pdf`, 'application/pdf');
+          set({ toast: t('sign.success', { name: base }) });
+        });
+      },
 
       /* ----------------------------------------------------------------- zoom */
 

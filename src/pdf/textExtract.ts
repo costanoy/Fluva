@@ -20,6 +20,11 @@ export interface TextItem {
   substituteKey: string;
   /** True when the substitute is metrically identical to the original. */
   exactSubstitute: boolean;
+  /** pdf.js's internal key for this run's font object, set only when that font
+   * carries a real embedded glyph program (not a Type3 font, not a bare
+   * standard-font reference with nothing embedded) — i.e. only when there is
+   * something `resolveOriginalFontBytes` could actually pull bytes out of. */
+  originalFontKey?: string;
 }
 
 /**
@@ -44,14 +49,21 @@ export async function extractPageText(doc: DocumentState, page: WorkPage): Promi
 
   const styles = (content as { styles?: Record<string, { fontFamily?: string }> }).styles ?? {};
   const fontNameCache = new Map<string, string>();
+  const embeddedFontCache = new Map<string, boolean>();
   const resolveFontName = (key: string): string => {
     const cached = fontNameCache.get(key);
     if (cached !== undefined) return cached;
     let name = '';
     try {
       if (pdfPage.commonObjs.has(key)) {
-        const obj = pdfPage.commonObjs.get(key) as { name?: string };
+        const obj = pdfPage.commonObjs.get(key) as { name?: string; data?: unknown; isType3Font?: boolean };
         if (obj?.name) name = obj.name;
+        // A Type3 font has no reusable sfnt glyph program, and `.data` is only
+        // ever populated when the PDF actually embedded a font program — a
+        // bare reference to a standard font like "Arial" by name leaves it
+        // empty, which is exactly the case that should keep using the
+        // substitute system rather than claim an "original" that isn't there.
+        embeddedFontCache.set(key, !obj?.isType3Font && !!obj?.data);
       }
     } catch {
       // Font object not resolvable; fall through to the generic family.
@@ -90,11 +102,43 @@ export async function extractPageText(doc: DocumentState, page: WorkPage): Promi
       italic: isItalicName(rawFontName),
       substituteKey: match.family.key,
       exactSubstitute: match.exact,
+      originalFontKey: embeddedFontCache.get(item.fontName) ? item.fontName : undefined,
     });
   }
 
   pdfPage.cleanup();
   return items;
+}
+
+/**
+ * Re-resolves the actual embedded glyph program for a run captured by
+ * `extractPageText` (via its `TextItem.originalFontKey`), so it can be
+ * embedded into the exported PDF in place of a look-alike substitute.
+ *
+ * Deliberately re-fetches and re-parses the page rather than trying to reuse
+ * anything left over from the original `extractPageText` call — that call
+ * already released its page (`pdfPage.cleanup()`) by the time an edit is
+ * actually committed, and pdf.js's font-key assignment is a deterministic
+ * parse of the same immutable bytes, so asking again here is both correct and
+ * cheap next to the PDF processing export already does.
+ */
+export async function resolveOriginalFontBytes(doc: DocumentState, page: WorkPage, pdfFontKey: string): Promise<Uint8Array | null> {
+  const source = page.sourceId ? doc.sources[page.sourceId] : undefined;
+  if (!source || source.kind !== 'pdf') return null;
+
+  const pdf = await getPdfDoc(source);
+  const pdfPage = await pdf.getPage(page.sourceIndex + 1);
+  try {
+    await pdfPage.getOperatorList();
+    if (!pdfPage.commonObjs.has(pdfFontKey)) return null;
+    const obj = pdfPage.commonObjs.get(pdfFontKey) as { data?: unknown; isType3Font?: boolean };
+    if (obj?.isType3Font || !obj?.data) return null;
+    return obj.data instanceof Uint8Array ? obj.data : new Uint8Array(obj.data as ArrayBufferLike);
+  } catch {
+    return null;
+  } finally {
+    pdfPage.cleanup();
+  }
 }
 
 export interface SampledColors {

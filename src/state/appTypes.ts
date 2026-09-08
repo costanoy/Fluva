@@ -4,7 +4,7 @@ import type { ExportFormat } from '../pdf/exporters';
 import type { TextItem } from '../pdf/textExtract';
 import type { Lang } from '../i18n/translations';
 
-export type Screen = 'empty' | 'editing' | 'beta';
+export type Screen = 'empty' | 'reading' | 'editing' | 'beta';
 export type ToolMode = 'merge' | 'split' | 'compress' | 'watermark' | 'reorder' | null;
 
 export type SplitMode = 'range' | 'pages';
@@ -39,6 +39,10 @@ export interface BusyState {
 export interface TextRunDraft {
   text: string;
   fontKey: string;
+  /** Whether to draw with the run's own original embedded font (see
+   * `TextItem.originalFontKey`) instead of `fontKey`'s substitute, when one
+   * was found. Meaningless (and ignored) when the original target had none. */
+  useOriginalFont: boolean;
   size: number;
   bold: boolean;
   italic: boolean;
@@ -64,6 +68,10 @@ export interface AppState {
   lang: Lang;
   screen: Screen;
   doc: DocumentState;
+  /** The single file being shown in the fast reader (`screen === 'reading'`) —
+   * kept as the raw `File`, not a parsed document, so just being on this
+   * screen never pulls in anything beyond what `ReaderScreen` itself needs. */
+  readerFile: File | null;
   /** Source ids that are loaded and available to merge but not currently in `doc.pages`. */
   spareSourceIds: string[];
   queue: QueuedFile[];
@@ -94,6 +102,7 @@ export interface AppState {
   dirty: boolean;
   exportOpen: boolean;
   exportFormat: ExportFormat;
+  signDialogOpen: boolean;
   mergeSelected: string[];
   splitMode: SplitMode;
   splitRangeSubMode: SplitRangeSubMode;

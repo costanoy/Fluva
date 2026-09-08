@@ -1,5 +1,11 @@
-import { StandardFonts, type PDFDocument, type PDFFont } from 'pdf-lib';
-import fontkit from '@pdf-lib/fontkit';
+// Type-only — `useFluvaStore.ts` needs this module's name-matching helpers
+// (cleanFontName, matchSubstitute, familyByKey…) reachable without loading
+// the app's screens, so nothing here may pull in real pdf-lib/fontkit code
+// at module-eval time. The standard-font values below are pdf-lib's own
+// well-known Base-14 PostScript names, hardcoded rather than imported from
+// its `StandardFonts` enum for the same reason; `createFontSet`'s embedding
+// path (the only place that needs the real packages) imports them lazily.
+import type { StandardFonts, PDFDocument, PDFFont } from 'pdf-lib';
 
 /**
  * Fonts embedded in a PDF are frequently subset or non-redistributable, so text that
@@ -37,10 +43,10 @@ export const SUBSTITUTE_FAMILIES: SubstituteFamily[] = [
     approximates: [],
     source: {
       type: 'standard',
-      regular: StandardFonts.Helvetica,
-      bold: StandardFonts.HelveticaBold,
-      italic: StandardFonts.HelveticaOblique,
-      boldItalic: StandardFonts.HelveticaBoldOblique,
+      regular: 'Helvetica' as StandardFonts,
+      bold: 'Helvetica-Bold' as StandardFonts,
+      italic: 'Helvetica-Oblique' as StandardFonts,
+      boldItalic: 'Helvetica-BoldOblique' as StandardFonts,
     },
   },
   {
@@ -51,10 +57,10 @@ export const SUBSTITUTE_FAMILIES: SubstituteFamily[] = [
     approximates: [],
     source: {
       type: 'standard',
-      regular: StandardFonts.TimesRoman,
-      bold: StandardFonts.TimesRomanBold,
-      italic: StandardFonts.TimesRomanItalic,
-      boldItalic: StandardFonts.TimesRomanBoldItalic,
+      regular: 'Times-Roman' as StandardFonts,
+      bold: 'Times-Bold' as StandardFonts,
+      italic: 'Times-Italic' as StandardFonts,
+      boldItalic: 'Times-BoldItalic' as StandardFonts,
     },
   },
   {
@@ -65,10 +71,10 @@ export const SUBSTITUTE_FAMILIES: SubstituteFamily[] = [
     approximates: [],
     source: {
       type: 'standard',
-      regular: StandardFonts.Courier,
-      bold: StandardFonts.CourierBold,
-      italic: StandardFonts.CourierOblique,
-      boldItalic: StandardFonts.CourierBoldOblique,
+      regular: 'Courier' as StandardFonts,
+      bold: 'Courier-Bold' as StandardFonts,
+      italic: 'Courier-Oblique' as StandardFonts,
+      boldItalic: 'Courier-BoldOblique' as StandardFonts,
     },
   },
   {
@@ -270,14 +276,56 @@ export function sanitizeForStandardFont(text: string): string {
   return out;
 }
 
+/**
+ * Whether every character `text` needs (aside from plain whitespace) has an
+ * actual glyph in the given font program — checked directly against fontkit's
+ * own parse rather than relying on pdf-lib to fail loudly for a missing one,
+ * since a missing glyph in a custom embedded font more often renders as a
+ * silent blank/`.notdef` box than a thrown error. Used to decide *before*
+ * embedding whether a source PDF's original font can safely be reused for an
+ * edited run, or whether the substitute system should handle it instead.
+ */
+export async function fontSupportsText(bytes: Uint8Array, text: string): Promise<boolean> {
+  try {
+    const { default: fontkit } = await import('@pdf-lib/fontkit');
+    const parsed = fontkit.create(bytes);
+    for (const ch of text) {
+      if (ch === '\n' || ch === '\r' || ch === '\t') continue;
+      if (!parsed.hasGlyphForCodePoint(ch.codePointAt(0)!)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface EmbeddedFontSet {
   get(familyKey: string, bold: boolean, italic: boolean): Promise<PDFFont>;
+  /**
+   * Embeds a font program extracted straight from a source PDF (see
+   * `textExtract.ts`'s `resolveOriginalFontBytes`), instead of one of the 12
+   * fixed substitute families. Returns null rather than throwing when the
+   * bytes don't parse as a usable font (fontkit rejects the data, or it's
+   * missing a glyph pdf-lib needs at draw time) — original-font runs have no
+   * bold/italic variants of their own to pick between the way substitute
+   * families do, so the cache is keyed purely by whatever identifies the
+   * source run's font resource, passed in by the caller.
+   */
+  getOriginal(cacheKey: string, bytes: Uint8Array): Promise<PDFFont | null>;
 }
 
 /** Embeds standard and custom fonts lazily and caches them per output document. */
 export function createFontSet(doc: PDFDocument): EmbeddedFontSet {
   const cache = new Map<string, Promise<PDFFont>>();
+  const originalCache = new Map<string, Promise<PDFFont | null>>();
   let fontkitRegistered = false;
+  const ensureFontkit = async () => {
+    if (!fontkitRegistered) {
+      const { default: fontkit } = await import('@pdf-lib/fontkit');
+      doc.registerFontkit(fontkit);
+      fontkitRegistered = true;
+    }
+  };
 
   return {
     get(familyKey, bold, italic) {
@@ -297,15 +345,27 @@ export function createFontSet(doc: PDFDocument): EmbeddedFontSet {
             : italic ? family.source.italic
             : family.source.regular;
           entry = (async () => {
-            if (!fontkitRegistered) {
-              doc.registerFontkit(fontkit);
-              fontkitRegistered = true;
-            }
+            await ensureFontkit();
             const bytes = await fetch(url).then((r) => r.arrayBuffer());
             return doc.embedFont(bytes, { subset: true });
           })();
         }
         cache.set(key, entry);
+      }
+      return entry;
+    },
+    getOriginal(cacheKey, bytes) {
+      let entry = originalCache.get(cacheKey);
+      if (!entry) {
+        entry = (async () => {
+          try {
+            await ensureFontkit();
+            return await doc.embedFont(bytes, { subset: true });
+          } catch {
+            return null;
+          }
+        })();
+        originalCache.set(cacheKey, entry);
       }
       return entry;
     },

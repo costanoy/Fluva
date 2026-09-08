@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { Move } from 'lucide-react';
 import type { ImageAsset, Overlay, WorkPage } from '../pdf/model';
-import { TEXT_LINE_HEIGHT } from '../pdf/build';
+import { TEXT_LINE_HEIGHT } from '../pdf/geometry';
 import { familyByKey } from '../pdf/fonts';
 import { useApp } from '../state/AppContext';
 import { t } from '../i18n/translations';
