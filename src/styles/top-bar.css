@@ -113,7 +113,7 @@
 }
 
 .brand-logo {
-  width: 60px;
+  width: auto;
   height: 60px;
   flex-shrink: 0;
 }
@@ -247,7 +247,7 @@
   }
 
   .brand-logo {
-    width: 44px;
+    width: auto;
     height: 44px;
   }
 
@@ -313,7 +313,7 @@
   }
 
   .brand-logo {
-    width: 36px;
+    width: auto;
     height: 36px;
   }
 
