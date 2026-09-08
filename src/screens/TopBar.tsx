@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { ChevronDown, FlaskConical, Heart, FileText, Image as ImageIcon, Upload } from 'lucide-react';
+import { ArrowLeft, ChevronDown, FlaskConical, Heart, FileText, Image as ImageIcon, Upload } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Dialog } from '../components/Dialog';
 import { Logo } from '../components/Logo';
@@ -74,9 +74,24 @@ export function TopBar() {
   const hasHistoryBreadcrumb = isEditing || state.screen === 'reading';
   const [donateOpen, setDonateOpen] = useState(false);
 
+  // Same navigation both the explicit "Voltar" button and clicking the brand
+  // logo trigger — delegating to the browser's own Back button when a
+  // breadcrumb was left (see App.tsx's popstate handler) keeps this in
+  // lockstep with pressing Back for real, unsaved-changes confirmation included.
+  const goBack = () => {
+    if (hasHistoryBreadcrumb) window.history.back();
+    else actions.reset();
+  };
+
   return (
     <div className="nav top-bar">
       <div className="top-bar-file text-muted">
+        {hasHistoryBreadcrumb && (
+          <button className="back-button" onClick={goBack} title={t('topbar.backHome')} aria-label={t('topbar.backHome')}>
+            <ArrowLeft size={16} strokeWidth={2.75} />
+            <span className="back-button-label">{t('topbar.back')}</span>
+          </button>
+        )}
         {isEditing && (
           <div className="top-bar-file-text">
             <div className="top-bar-file-row">
@@ -123,8 +138,7 @@ export function TopBar() {
           // with pressing Back for real (see App.tsx's popstate handler).
           if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
           e.preventDefault();
-          if (hasHistoryBreadcrumb) window.history.back();
-          else actions.reset();
+          goBack();
         }}
         title={t('topbar.backHome')}
       >

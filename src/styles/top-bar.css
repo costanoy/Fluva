@@ -13,9 +13,33 @@
 
 .top-bar-file {
   display: flex;
+  align-items: center;
+  gap: 14px;
   font-size: 16px;
   font-weight: 600;
   min-width: 0;
+}
+
+.back-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-neutral-700);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 14.5px;
+  padding: 8px 10px;
+  border-radius: var(--radius-pill);
+  transition: background .15s ease, color .15s ease;
+}
+
+.back-button:hover {
+  background: var(--color-neutral-200);
+  color: var(--color-accent-700);
 }
 
 .top-bar-file-text {
@@ -291,6 +315,14 @@
   .brand-logo {
     width: 36px;
     height: 36px;
+  }
+
+  .back-button-label {
+    display: none;
+  }
+
+  .back-button {
+    padding: 8px;
   }
 }
 

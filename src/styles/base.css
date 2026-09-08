@@ -37,8 +37,7 @@ button, input {
 }
 
 /* Keeps content available to screen readers and search engine crawlers
-   without taking up visual space — used for the page's real <h1>, which the
-   visual design intentionally leaves out in favor of the dropzone heading. */
+   without taking up visual space. */
 .sr-only {
   position: absolute;
   width: 1px;

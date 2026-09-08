@@ -1,16 +1,43 @@
 import { useCallback, useState, type DragEvent } from 'react';
-import { FileText, Image as ImageIcon, Upload, X } from 'lucide-react';
+import {
+  FileText,
+  Image as ImageIcon,
+  Upload,
+  X,
+  Pencil,
+  Combine,
+  Columns2,
+  Minimize2,
+  RotateCw,
+  Droplet,
+  Repeat,
+  PenLine,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button } from '../components/Button';
 import { Footer } from '../components/Footer';
 import { useApp } from '../state/AppContext';
 import { formatBytes } from '../pdf/loader';
-import { t } from '../i18n/translations';
+import { t, type TranslationKey } from '../i18n/translations';
 import '../styles/empty-state.css';
 
 const CONVERT_TARGETS: Array<{ key: 'pdf' | 'png' | 'jpg'; label: string }> = [
   { key: 'pdf', label: 'PDF' },
   { key: 'png', label: 'PNG' },
   { key: 'jpg', label: 'JPG' },
+];
+
+/** What Fluva can already do, shown as a quick visual pitch on the home
+ * screen — kept to the real toolbar/export feature set, nothing aspirational. */
+const FEATURES: Array<{ Icon: LucideIcon; labelKey: TranslationKey }> = [
+  { Icon: Pencil, labelKey: 'home.featureEdit' },
+  { Icon: Combine, labelKey: 'home.featureMerge' },
+  { Icon: Columns2, labelKey: 'home.featureSplit' },
+  { Icon: Minimize2, labelKey: 'home.featureCompress' },
+  { Icon: RotateCw, labelKey: 'home.featureRotate' },
+  { Icon: Droplet, labelKey: 'home.featureWatermark' },
+  { Icon: Repeat, labelKey: 'home.featureConvert' },
+  { Icon: PenLine, labelKey: 'home.featureSign' },
 ];
 
 export function EmptyState() {
@@ -33,9 +60,13 @@ export function EmptyState() {
 
   return (
     <div className="empty-state">
-      <h1 className="sr-only">{t('home.pageTitle')}</h1>
       <div className="empty-state-inner">
         <div className="empty-state-content">
+          <div className="hero">
+            <h1 className="hero-title">{t('home.pageTitle')}</h1>
+            <p className="hero-subtitle">{t('home.heroSubtitle')}</p>
+          </div>
+
           <div
             className={`dropzone${dragOver ? ' dropzone-active' : ''}`}
             role="button"
@@ -135,6 +166,22 @@ export function EmptyState() {
                     </div>
                   </>
                 )}
+              </div>
+            </div>
+          )}
+
+          {!hasQueue && (
+            <div className="feature-section">
+              <h2 className="feature-section-title">{t('home.featuresTitle')}</h2>
+              <div className="feature-grid">
+                {FEATURES.map(({ Icon, labelKey }) => (
+                  <div className="feature-item" key={labelKey}>
+                    <span className="feature-item-icon">
+                      <Icon size={16} strokeWidth={2.75} />
+                    </span>
+                    {t(labelKey)}
+                  </div>
+                ))}
               </div>
             </div>
           )}
