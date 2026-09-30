@@ -1,8 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- Ícone do app: símbolo do Fluva sobre papel. Margem larga o bastante
-       para caber na zona segura dos ícones "maskable"/adaptativos. -->
-  <rect width="1024" height="1024" fill="#F5F0E6"/>
-  <g transform="translate(212 287) scale(5.769)">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -12 108 104" width="1024" height="1024">
+  <!-- Favicon: só o símbolo, fundo transparente, recorte justo. -->
+  
+  <g transform="">
     <g fill="#FF4FA3">
       <g transform="translate(1.2 1.6)">
         <rect x="17" y="22.5" width="17.5" height="6.5" rx="3.25"/>
