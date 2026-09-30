@@ -6,7 +6,7 @@ import type { Overlay } from '../../pdf/model';
 import { t } from '../../i18n/translations';
 
 const SHAPE_COLORS = ['#1D9E75', '#D85A30', '#534AB7', '#2C2C2A', '#FFFFFF'];
-const TEXT_COLORS = ['#2C2C2A', '#1D9E75', '#D85A30', '#534AB7', '#FFFFFF'];
+const TEXT_COLORS = ['#161616', '#2B4C8C', '#B3261E', '#1D7A4E', '#FFFFFF'];
 
 /** Editor for the overlay the user has selected on the page. */
 export function OverlayPanel({ overlay }: { overlay: Overlay }) {
@@ -17,7 +17,7 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
   if (overlay.kind === 'text') {
     return (
       <>
-        <h6 style={{ color: 'var(--color-accent-700)' }}>{t('overlay.textTitle')}</h6>
+        <h6 className="panel-title">{t('overlay.textTitle')}</h6>
 
         <div className="panel-label">{t('overlay.content')}</div>
         <textarea className="text-input" rows={6} value={overlay.text} onChange={(e) => update({ text: e.target.value })} />
@@ -38,34 +38,27 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
 
         <div className="panel-label">{t('overlay.size')}</div>
         <div className="panel-row">
-          <Button icon onClick={() => update({ size: Math.max(4, overlay.size - 2) })}>−</Button>
-          <input
-            type="number"
-            min={4}
-            max={200}
-            value={Math.round(overlay.size * 10) / 10}
-            onChange={(e) => update({ size: Math.max(4, Math.min(200, Number(e.target.value))) })}
-            className="number-input"
-            style={{ flex: 1 }}
-          />
-          <Button icon onClick={() => update({ size: Math.min(200, overlay.size + 2) })}>+</Button>
-        </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            className="btn btn-secondary"
-            style={{ flex: 1, fontWeight: 800, background: overlay.bold ? 'var(--color-accent)' : undefined, color: overlay.bold ? '#fff' : undefined }}
-            onClick={() => update({ bold: !overlay.bold })}
-          >
-            N
-          </button>
-          <button
-            className="btn btn-secondary"
-            style={{ flex: 1, fontStyle: 'italic', fontWeight: 700, background: overlay.italic ? 'var(--color-accent)' : undefined, color: overlay.italic ? '#fff' : undefined }}
-            onClick={() => update({ italic: !overlay.italic })}
-          >
-            I
-          </button>
+          <div className="seg-group panel-stepper">
+            <button aria-label="−" onClick={() => update({ size: Math.max(4, overlay.size - 2) })}>−</button>
+            <input
+              type="number"
+              min={4}
+              max={200}
+              value={Math.round(overlay.size * 10) / 10}
+              onChange={(e) => update({ size: Math.max(4, Math.min(200, Number(e.target.value))) })}
+              className="stepper-input"
+              aria-label={t('overlay.size')}
+            />
+            <button aria-label="+" onClick={() => update({ size: Math.min(200, overlay.size + 2) })}>+</button>
+          </div>
+          <div className="seg-group style-toggles">
+            <button aria-pressed={overlay.bold} aria-label="B" style={{ fontWeight: 800 }} onClick={() => update({ bold: !overlay.bold })}>
+              B
+            </button>
+            <button aria-pressed={overlay.italic} aria-label="I" style={{ fontStyle: 'italic', fontFamily: 'Georgia, serif' }} onClick={() => update({ italic: !overlay.italic })}>
+              I
+            </button>
+          </div>
         </div>
 
         <div className="panel-label">{t('overlay.color')}</div>
@@ -93,7 +86,7 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
   if (overlay.kind === 'image') {
     return (
       <>
-        <h6 style={{ color: 'var(--color-accent-2-700)' }}>{t('overlay.imageTitle')}</h6>
+        <h6 className="panel-title">{t('overlay.imageTitle')}</h6>
         <div className="panel-note">{t('overlay.imageNote')}</div>
 
         <div className="panel-label">{t('overlay.size')}</div>
@@ -136,7 +129,7 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
   if (overlay.kind === 'shape') {
     return (
       <>
-        <h6 style={{ color: 'var(--color-accent-700)' }}>{t('overlay.shapeTitle')}</h6>
+        <h6 className="panel-title">{t('overlay.shapeTitle')}</h6>
 
         {isPending && (
           <Button variant="primary" block style={{ marginTop: 0 }} onClick={actions.confirmPendingOverlay}>
@@ -188,7 +181,7 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
 
   return (
     <>
-      <h6>{t('overlay.coverTitle')}</h6>
+      <h6 className="panel-title">{t('overlay.coverTitle')}</h6>
       <div className="panel-note">{t('overlay.coverNote')}</div>
       <Button block onClick={() => actions.removeOverlay(overlay.id)}>
         <Trash2 size={16} strokeWidth={2.75} />
@@ -213,13 +206,14 @@ function Swatches({ colors, value, onChange }: { colors: string[]; value: string
   };
 
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+    <div className="swatches">
       {colors.map((c) => (
         <button
           key={c}
           className="swatch"
           aria-label={t('overlay.colorAria', { hex: c })}
-          style={{ background: c, outline: c === value ? '2px solid var(--color-accent)' : 'none', outlineOffset: 2 }}
+          aria-pressed={c === value}
+          style={{ background: c }}
           onClick={() => onChange(c)}
         />
       ))}

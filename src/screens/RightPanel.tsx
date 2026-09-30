@@ -58,7 +58,7 @@ export function RightPanel() {
           {selectedOverlay ? (
             isMovingSelected ? (
               <>
-                <h6 style={{ color: 'var(--color-accent-700)' }}>{t('panel.movingTextTitle')}</h6>
+                <h6 className="panel-title">{t('panel.movingTextTitle')}</h6>
                 <div className="panel-note">{t('panel.movingTextNote')}</div>
                 <Button variant="primary" block onClick={() => actions.setMovingOverlay(null)}>
                   {t('panel.ok')}
@@ -71,7 +71,7 @@ export function RightPanel() {
             <TextRunPanel />
           ) : (
             <>
-              <h6 style={{ marginBottom: 2, color: 'var(--color-neutral-600)' }}>{t('panel.addToPage', { n: state.activePageIndex + 1 })}</h6>
+              <h6 className="panel-title">{t('panel.addToPage', { n: state.activePageIndex + 1 })}</h6>
 
               <div className="panel-group">
                 <Button style={{ ...panelBtn, marginTop: 0 }} onClick={actions.addText}>

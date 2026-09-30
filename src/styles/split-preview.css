@@ -1,4 +1,6 @@
 .split-preview {
+  grid-area: canvas;
+  background: var(--doc-canvas);
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -8,11 +10,16 @@
 }
 
 .split-preview-header h4 {
-  margin-bottom: 4px;
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1.1;
+  margin-bottom: 8px;
 }
 
 .split-preview-header p {
-  color: var(--color-neutral-600);
+  margin: 0;
+  color: var(--graphite-muted);
   font-size: 14.5px;
   line-height: 1.5;
   max-width: 640px;
@@ -32,12 +39,12 @@
   flex-shrink: 0;
   gap: 6px;
   padding: 10px;
-  border: 2px solid var(--color-neutral-300);
-  border-radius: var(--radius-md);
-  background: #FFFFFF;
+  border: 2px solid var(--graphite);
+  border-radius: 12px;
+  background: var(--paper-raised);
   cursor: default;
   font-family: var(--font-body);
-  transition: border-color .12s ease, background .12s ease;
+  transition: background .14s ease-out;
 }
 
 .split-preview-item-selectable {
@@ -45,7 +52,7 @@
 }
 
 .split-preview-item-selectable:hover {
-  border-color: var(--color-accent);
+  background: #FFFFFF;
 }
 
 .split-preview-item-draggable {
@@ -53,13 +60,13 @@
 }
 
 .split-preview-item-drop {
-  outline: 2px dashed var(--color-accent);
+  outline: 2.5px dashed var(--ink-green);
   outline-offset: 3px;
 }
 
 .split-preview-thumb-wrap {
   position: relative;
-  box-shadow: var(--shadow-sm);
+  border: 1px solid #CFCBC3;
   line-height: 0;
 }
 
@@ -70,8 +77,8 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--color-accent);
-  border: 2px solid #FFFFFF;
+  background: var(--ink-green);
+  border: 2px solid var(--graphite);
   display: flex;
   align-items: center;
   justify-content: center;

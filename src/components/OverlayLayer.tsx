@@ -325,7 +325,7 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
     // (as text does while its font-size transitions during a zoom), which is
     // what made the selection ring look glitchy. box-shadow paints with the
     // box itself, so it tracks it exactly, every frame.
-    boxShadow: selected ? '0 0 0 2px var(--color-accent)' : 'none',
+    boxShadow: selected ? '0 0 0 1.5px var(--ink-green)' : 'none',
     touchAction: 'none',
     transition: smoothTransition,
   };
@@ -421,15 +421,14 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
               height: 28,
               padding: 0,
               borderRadius: '50%',
-              border: '2px solid #FFFFFF',
-              background: 'var(--color-accent)',
-              color: '#FFFFFF',
+              border: '2px solid var(--graphite)',
+              background: 'var(--ink-green)',
+              color: 'var(--graphite)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: isInteracting ? 'grabbing' : 'grab',
-              boxShadow: 'var(--shadow-sm)',
-              touchAction: 'none',
+                            touchAction: 'none',
             }}
           >
             <Move size={14} strokeWidth={2.75} />
@@ -492,9 +491,9 @@ function ResizeHandle(props: {
         bottom: -7,
         width: 14,
         height: 14,
-        borderRadius: 3,
-        background: 'var(--color-accent)',
-        border: '2px solid #FFFFFF',
+        borderRadius: 1,
+        background: '#FFFFFF',
+        border: '1.5px solid var(--ink-green)',
         cursor: 'nwse-resize',
         touchAction: 'none',
       }}

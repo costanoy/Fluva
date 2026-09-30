@@ -1,19 +1,28 @@
 .toolbar {
-  grid-area: toolbar;
-  height: 60px;
+  height: 56px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--color-divider);
-  background: #FFFFFF;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 0 16px;
+  border-bottom: 2px solid var(--graphite);
+  background: var(--paper-toolbar);
   overflow-x: auto;
+  position: relative;
+  z-index: 30;
 }
 
-.toolbar-btn {
-  gap: 6px;
-  font-size: 14.5px;
+.toolbar-icon {
+  width: 40px;
+  padding: 0;
+}
+
+.toolbar-divider {
+  width: 2px;
+  height: 28px;
+  background: var(--graphite);
+  opacity: .25;
+  margin: 0 8px;
   flex-shrink: 0;
 }
 
@@ -22,50 +31,169 @@
 }
 
 .toolbar-zoom {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  color: var(--color-neutral-600);
-  padding: 0 4px;
+  height: 40px;
+  border-radius: 9px;
 }
 
-.toolbar-zoom-slider {
-  width: 110px;
-  accent-color: var(--color-accent);
-  cursor: pointer;
+.toolbar-zoom button {
+  min-width: 38px;
 }
 
-.toolbar-zoom-value {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--color-neutral-500);
-  width: 40px;
-  flex-shrink: 0;
+.toolbar-zoom .seg-group-value {
+  width: 60px;
+  min-width: 60px;
+  font-size: 14px;
 }
 
-@media (max-width: 899px) {
+.toolbar-mobile,
+.tabbar {
+  display: none;
+}
+
+/* ------------------------------------------------------------ celular */
+
+@media (max-width: 768px) {
   .toolbar {
-    height: 56px;
+    display: none;
+  }
+
+  .toolbar-mobile {
+    display: flex;
+    align-items: center;
     gap: 4px;
-    padding: 0 10px;
+    padding: 6px 8px;
+    flex-shrink: 0;
+    border-bottom: 2px solid var(--graphite);
+    background: var(--paper-toolbar);
   }
 
-  .toolbar-btn-label {
-    display: none;
+  .toolbar-mobile .toolbar-icon {
+    width: 44px;
+    height: 44px;
+    border: none;
   }
 
-  .toolbar-btn {
-    width: 36px;
-    height: 36px;
-    padding: 9px;
+  .page-select {
+    position: relative;
+    height: 44px;
+    padding: 0 12px;
+    border-radius: 9px;
+    border: 2px solid var(--graphite);
+    background: var(--paper-raised);
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
   }
 
-  .toolbar-zoom-slider {
-    width: 70px;
+  .page-select select {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    font-size: 16px;
   }
 
-  .toolbar-zoom-value {
-    display: none;
+  .page-select:focus-within {
+    outline: 3px solid var(--ink-pink);
+    outline-offset: 3px;
+  }
+
+  .tabbar {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    flex-shrink: 0;
+    border-top: 2px solid var(--graphite);
+    background: var(--paper-toolbar);
+    padding: 6px 4px 10px;
+    position: relative;
+    z-index: 35;
+  }
+
+  .tabbar-btn {
+    height: 56px;
+    border: none;
+    background: transparent;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--graphite);
+    cursor: pointer;
+    min-width: 0;
+  }
+
+  .tabbar-btn:disabled {
+    opacity: .45;
+  }
+
+  .tabbar-icon {
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .tabbar-icon-active {
+    width: 44px;
+    border-radius: 999px;
+    background: var(--ink-green);
+  }
+
+  .tabbar-btn[aria-pressed="true"] {
+    font-weight: 800;
+  }
+
+  .sheet {
+    background: var(--paper);
+    border-top: 2px solid var(--graphite);
+    border-radius: 18px 18px 0 0;
+  }
+
+  .sheet-grip {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--disabled-border);
+    align-self: center;
+    margin-bottom: 6px;
+  }
+
+  .more-sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 12px 12px;
+  }
+
+  .more-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 52px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    font: inherit;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--graphite);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .more-item:hover,
+  .more-item[aria-pressed="true"] {
+    background: var(--ink-green-tint);
   }
 }

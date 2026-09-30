@@ -34,7 +34,7 @@ export function TextRunPanel() {
 
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>{t('run.title')}</h6>
+      <h6 className="panel-title">{t('run.title')}</h6>
 
       <div className="panel-label">{t('run.text')}</div>
       <textarea className="text-input" rows={6} value={text} onChange={(e) => actions.setTextRunDraft({ text: e.target.value })} />
@@ -43,6 +43,7 @@ export function TextRunPanel() {
         <span className="font-detected-label">{t('run.originalFont')}</span>
         <strong>{target.originalFont}</strong>
         <span className={target.exactSubstitute ? 'font-badge font-badge-exact' : 'font-badge'}>
+          {target.exactSubstitute && <Check size={15} strokeWidth={2.6} />}
           {target.exactSubstitute ? t('run.exactMatch') : t('run.approxMatch')}
         </span>
       </div>
@@ -61,11 +62,10 @@ export function TextRunPanel() {
           <span
             className="merge-checkbox"
             style={{
-              borderColor: useOriginalFont ? 'var(--color-accent)' : 'var(--color-neutral-400)',
-              background: useOriginalFont ? 'var(--color-accent)' : 'transparent',
+              background: useOriginalFont ? 'var(--ink-green)' : '#FFFFFF',
             }}
           >
-            {useOriginalFont && <Check size={10} strokeWidth={3.5} color="#fff" />}
+            {useOriginalFont && <Check size={12} strokeWidth={3.5} color="var(--graphite)" />}
           </span>
           {t('run.useOriginalFont')}
         </button>
@@ -105,32 +105,32 @@ export function TextRunPanel() {
       </div>
       {useOriginalFont && <div className="panel-note panel-note-quiet">{t('run.originalFontPreviewNote')}</div>}
 
-      <div className="panel-label">{t('overlay.size')}</div>
-      <div className="panel-row">
-        <input
-          type="number"
-          min={4}
-          max={144}
-          step={0.5}
-          value={size}
-          onChange={(e) => actions.setTextRunDraft({ size: Number(e.target.value) })}
-          className="number-input"
-          style={{ flex: 1 }}
-        />
-        <button
-          className="btn btn-secondary"
-          style={{ flex: 1, fontWeight: 800, background: bold ? 'var(--color-accent)' : undefined, color: bold ? '#fff' : undefined }}
-          onClick={() => actions.setTextRunDraft({ bold: !bold })}
-        >
-          N
-        </button>
-        <button
-          className="btn btn-secondary"
-          style={{ flex: 1, fontStyle: 'italic', fontWeight: 700, background: italic ? 'var(--color-accent)' : undefined, color: italic ? '#fff' : undefined }}
-          onClick={() => actions.setTextRunDraft({ italic: !italic })}
-        >
-          I
-        </button>
+      <div className="panel-grid-2">
+        <div className="panel-field">
+          <div className="panel-label">{t('overlay.size')}</div>
+          <label className="unit-input">
+            <input
+              type="number"
+              min={4}
+              max={144}
+              step={0.5}
+              value={size}
+              onChange={(e) => actions.setTextRunDraft({ size: Number(e.target.value) })}
+            />
+            <span>pt</span>
+          </label>
+        </div>
+        <div className="panel-field">
+          <div className="panel-label">{t('run.style')}</div>
+          <div className="seg-group style-toggles">
+            <button aria-pressed={bold} aria-label="B" style={{ fontWeight: 800 }} onClick={() => actions.setTextRunDraft({ bold: !bold })}>
+              B
+            </button>
+            <button aria-pressed={italic} aria-label="I" style={{ fontStyle: 'italic', fontFamily: 'Georgia, serif' }} onClick={() => actions.setTextRunDraft({ italic: !italic })}>
+              I
+            </button>
+          </div>
+        </div>
       </div>
 
       <Button

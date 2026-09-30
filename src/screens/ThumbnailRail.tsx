@@ -8,7 +8,8 @@ import { usePointerReorder } from '../hooks/usePointerReorder';
 import { t } from '../i18n/translations';
 import '../styles/thumbnail-rail.css';
 
-const THUMB_MAX = 104;
+const THUMB_MAX = 142;
+const THUMB_W = 110;
 
 export function ThumbnailRail() {
   const { state, actions } = useApp();
@@ -19,9 +20,10 @@ export function ThumbnailRail() {
 
   return (
     <div className="thumb-rail">
+      <div className="thumb-rail-heading">{t('rail.pagesHeading', { count: state.doc.pages.length })}</div>
       {state.doc.pages.map((page, index) => {
         const shown = displaySize(page);
-        const scale = THUMB_MAX / Math.max(shown.width, shown.height);
+        const scale = Math.min(THUMB_MAX / shown.height, THUMB_W / shown.width);
         const isActive = index === state.activePageIndex;
         const isDropTarget = overIndex === index && dragIndex !== null && dragIndex !== index;
         const { style: reorderStyle, ...reorderProps } = itemProps(index);
@@ -37,12 +39,11 @@ export function ThumbnailRail() {
               ref={(el) => {
                 frameRefs.current[index] = el;
               }}
-              className="thumb-frame"
+              className={`thumb-frame${isActive ? ' thumb-frame-active' : ''}`}
               role="button"
               tabIndex={0}
               aria-label={t('rail.pageAria', { n: index + 1 })}
               aria-current={isActive}
-              style={{ borderColor: isActive ? 'var(--color-accent)' : 'var(--color-neutral-300)' }}
               onClick={() => actions.setActivePage(index)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -73,11 +74,11 @@ export function ThumbnailRail() {
                     actions.deletePage(index);
                   }}
                 >
-                  <X size={10} strokeWidth={3} />
+                  <X size={12} strokeWidth={3} />
                 </button>
               )}
             </div>
-            <div className="thumb-page-label">{t('rail.pageLabel', { n: index + 1 })}</div>
+            <div className={isActive ? 'thumb-page-label thumb-page-label-active' : 'thumb-page-label'}>{index + 1}</div>
           </div>
         );
       })}
@@ -106,14 +107,14 @@ function MergeSourceList() {
           <button
             key={source.id}
             className="merge-file-row"
-            style={{ background: checked ? 'var(--color-accent-100)' : 'transparent' }}
+            style={{ background: checked ? 'var(--ink-green-tint)' : 'transparent' }}
             onClick={() => actions.toggleMergeSource(source.id)}
           >
             <span
               className="merge-checkbox"
-              style={{ borderColor: checked ? 'var(--color-accent)' : 'var(--color-neutral-400)', background: checked ? 'var(--color-accent)' : 'transparent' }}
+              style={{ background: checked ? 'var(--ink-green)' : '#FFFFFF' }}
             >
-              {checked && <Check size={10} strokeWidth={3.5} color="#fff" />}
+              {checked && <Check size={12} strokeWidth={3.5} color="var(--graphite)" />}
             </span>
             <span className="merge-file-text">
               <span className="merge-file-name">{source.name}</span>

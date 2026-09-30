@@ -18,7 +18,7 @@ export function MergePanel() {
 
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>{t('merge.title')}</h6>
+      <h6 className="panel-title">{t('merge.title')}</h6>
       <div className="panel-note">{t('merge.note')}</div>
 
       {selected.length === 0 ? (
@@ -77,7 +77,7 @@ export function CompressPanel() {
 
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>{t('compress.title')}</h6>
+      <h6 className="panel-title">{t('compress.title')}</h6>
 
       <div className="panel-label">{t('compress.intensity')}</div>
       <div className="segmented">
@@ -87,7 +87,7 @@ export function CompressPanel() {
             className="segmented-btn"
             style={{
               background: state.compressLevel === level ? 'var(--color-accent)' : 'transparent',
-              color: state.compressLevel === level ? '#FFFFFF' : 'var(--color-text)',
+              color: 'var(--graphite)',
             }}
             onClick={() => actions.setCompressLevel(level)}
           >
@@ -153,7 +153,7 @@ export function WatermarkPanel() {
 
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>{t('wm.title')}</h6>
+      <h6 className="panel-title">{t('wm.title')}</h6>
 
       <Button
         variant={wm.enabled ? 'primary' : 'secondary'}
@@ -171,7 +171,7 @@ export function WatermarkPanel() {
               className="segmented-btn"
               style={{
                 background: wm.source.kind === 'text' ? 'var(--color-accent)' : 'transparent',
-                color: wm.source.kind === 'text' ? '#FFFFFF' : 'var(--color-text)',
+                color: 'var(--graphite)',
               }}
               onClick={() => commit({ source: { kind: 'text', text: wm.source.kind === 'text' ? wm.source.text : 'AMOSTRA' } })}
             >
@@ -181,7 +181,7 @@ export function WatermarkPanel() {
               className="segmented-btn"
               style={{
                 background: wm.source.kind === 'image' ? 'var(--color-accent)' : 'transparent',
-                color: wm.source.kind === 'image' ? '#FFFFFF' : 'var(--color-text)',
+                color: 'var(--graphite)',
               }}
               onClick={actions.uploadWatermarkImage}
             >
@@ -212,7 +212,7 @@ export function WatermarkPanel() {
               className="segmented-btn"
               style={{
                 background: wm.allPages ? 'var(--color-accent)' : 'transparent',
-                color: wm.allPages ? '#FFFFFF' : 'var(--color-text)',
+                color: 'var(--graphite)',
               }}
               onClick={() => commit({ allPages: true })}
             >
@@ -222,7 +222,7 @@ export function WatermarkPanel() {
               className="segmented-btn"
               style={{
                 background: !wm.allPages ? 'var(--color-accent)' : 'transparent',
-                color: !wm.allPages ? '#FFFFFF' : 'var(--color-text)',
+                color: 'var(--graphite)',
               }}
               onClick={() => commit({ allPages: false })}
             >
@@ -286,7 +286,7 @@ function Slider({
 export function ReorderPanel() {
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-700)' }}>{t('reorder.title')}</h6>
+      <h6 className="panel-title">{t('reorder.title')}</h6>
       <div className="panel-note">{t('reorder.note')}</div>
     </>
   );

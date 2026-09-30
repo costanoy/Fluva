@@ -124,7 +124,7 @@ export function SplitPreview() {
                 <PageView page={page} source={page.sourceId ? state.doc.sources[page.sourceId] : undefined} scale={scale} />
                 {selectable && selected && (
                   <span className="split-preview-check">
-                    <Check size={13} strokeWidth={3.5} color="#fff" />
+                    <Check size={13} strokeWidth={3.5} color="var(--graphite)" />
                   </span>
                 )}
               </div>

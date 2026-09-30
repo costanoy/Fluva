@@ -1,63 +1,131 @@
-import { Check, FileText, Image as ImageIcon, PenLine } from 'lucide-react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { Icon } from '../components/Icon';
 import { useApp } from '../state/AppContext';
 import { t } from '../i18n/translations';
 import type { ExportFormat } from '../pdf/exporters';
+import '../styles/menu.css';
 
+/** Closes a floating menu on Esc or on a press anywhere outside it (the
+ * button that opened it included — that one toggles on its own). */
+function useDismiss(onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const anchor = ref.current?.parentElement;
+      if (anchor && e.target instanceof Node && !anchor.contains(e.target)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+  return ref;
+}
+
+function MenuRow({
+  tag,
+  tagClass,
+  label,
+  desc,
+  badge,
+  highlighted,
+  disabled,
+  onClick,
+}: {
+  tag: ReactNode;
+  tagClass: string;
+  label: string;
+  desc: string;
+  badge?: string;
+  highlighted?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button className={`menu-row${highlighted ? ' menu-row-active' : ''}`} role="menuitem" onClick={onClick} disabled={disabled}>
+      <span className={`format-tag ${tagClass}`}>{tag}</span>
+      <span className="menu-row-text">
+        <span className="menu-row-label">
+          {label}
+          {badge && <span className="menu-badge">{badge}</span>}
+        </span>
+        <span className="menu-row-desc">{desc}</span>
+      </span>
+    </button>
+  );
+}
+
+/** "Baixar como" — the editor's Exportar menu. */
 export function ExportDropdown() {
   const { state, actions } = useApp();
+  const ref = useDismiss(actions.closeExport);
   const isPdf = state.doc.kind === 'pdf';
+  const busy = !!state.busy;
+  const run = (format: ExportFormat) => actions.runExport(format);
 
-  const Row = ({
-    format,
-    icon,
-    label,
-    showCheck = true,
-    badge,
-  }: {
-    format: ExportFormat;
-    icon: React.ReactNode;
-    label: string;
-    showCheck?: boolean;
-    badge?: string;
-  }) => (
-    <button className="export-row" onClick={() => actions.runExport(format)} disabled={!!state.busy}>
-      {icon}
-      <span className="export-row-label">{label}</span>
-      {badge && <span className="export-badge">{badge}</span>}
-      {showCheck && state.exportFormat === format && <Check size={15} strokeWidth={2.75} color="var(--color-accent)" />}
-    </button>
+  const pdfRow = (
+    <MenuRow
+      tag="PDF"
+      tagClass="format-tag-green"
+      label={t('export.pdf')}
+      desc={isPdf ? t('export.pdfDesc') : t('export.pdfFromImagesDesc')}
+      highlighted={state.exportFormat === 'pdf'}
+      disabled={busy}
+      onClick={() => run('pdf')}
+    />
   );
 
   return (
-    <div className="export-menu" onClick={(e) => e.stopPropagation()}>
+    <div className="popover export-menu" role="menu" ref={ref} onClick={(e) => e.stopPropagation()}>
+      <div className="menu-heading">{t('export.heading')}</div>
+      {isPdf && pdfRow}
+      <MenuRow tag="PNG" tagClass="format-tag-pink" label={t('export.png')} desc={t('export.pngDesc')} highlighted={state.exportFormat === 'png'} disabled={busy} onClick={() => run('png')} />
+      <MenuRow tag="JPG" tagClass="format-tag-pink" label={t('export.jpg')} desc={t('export.jpgDesc')} highlighted={state.exportFormat === 'jpg'} disabled={busy} onClick={() => run('jpg')} />
+      {!isPdf && pdfRow}
       {isPdf && (
-        <Row format="pdf" icon={<FileText size={17} strokeWidth={2.75} color="var(--color-accent)" />} label={t('export.asPdf')} showCheck={false} />
+        <MenuRow
+          tag="DOCX"
+          tagClass="format-tag-docx"
+          label={t('export.wordLabel')}
+          desc={t('export.wordDesc')}
+          badge={t('export.beta')}
+          highlighted={state.exportFormat === 'docx'}
+          disabled={busy}
+          onClick={() => run('docx')}
+        />
       )}
-
-      {!isPdf && <h6 className="export-heading">{t('export.asImageHeading')}</h6>}
-      <Row format="png" icon={<ImageIcon size={17} strokeWidth={2.75} />} label={t('export.asPng')} />
-      <Row format="jpg" icon={<ImageIcon size={17} strokeWidth={2.75} />} label={t('export.asJpg')} />
-
-      {!isPdf && (
+      {isPdf && (
         <>
-          <h6 className="export-heading">{t('export.orAsDocument')}</h6>
-          <Row format="pdf" icon={<FileText size={17} strokeWidth={2.75} />} label={t('export.asPdf')} />
+          <div className="menu-divider" />
+          <MenuRow
+            tag={<Icon name="signature" size={18} color="var(--paper)" />}
+            tagClass="format-tag-ink"
+            label={t('export.signLabel')}
+            desc={t('export.signDesc')}
+            disabled={busy}
+            onClick={() => actions.setSignDialogOpen(true)}
+          />
         </>
       )}
+    </div>
+  );
+}
 
-      {isPdf && (
-        <>
-          <h6 className="export-heading">{t('export.orConvertTo')}</h6>
-          <Row format="docx" icon={<FileText size={17} strokeWidth={2.75} />} label={t('export.word')} badge={t('export.beta')} />
-        </>
-      )}
-
-      {isPdf && (
-        <button className="export-row" onClick={() => actions.setSignDialogOpen(true)} disabled={!!state.busy}>
-          <PenLine size={17} strokeWidth={2.75} />
-          <span className="export-row-label">{t('sign.title')}</span>
-        </button>
-      )}
+/** The reader's "Alterar formato" — the same menu minus the signed PDF, for
+ * the conversions the reader itself can run. */
+export function FormatMenu({ onClose, onPick }: { onClose: () => void; onPick: (format: 'pdf' | 'png' | 'jpg') => void }) {
+  const ref = useDismiss(onClose);
+  return (
+    <div className="popover export-menu" role="menu" ref={ref}>
+      <div className="menu-heading">{t('export.heading')}</div>
+      <MenuRow tag="PDF" tagClass="format-tag-green" label={t('export.pdf')} desc={t('export.pdfFromImagesDesc')} onClick={() => onPick('pdf')} />
+      <MenuRow tag="PNG" tagClass="format-tag-pink" label={t('export.png')} desc={t('export.pngDesc')} onClick={() => onPick('png')} />
+      <MenuRow tag="JPG" tagClass="format-tag-pink" label={t('export.jpg')} desc={t('export.jpgDesc')} onClick={() => onPick('jpg')} />
     </div>
   );
 }

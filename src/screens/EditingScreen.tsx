@@ -1,10 +1,10 @@
-import { X } from 'lucide-react';
+import { Icon } from '../components/Icon';
 import { Toast } from '../components/Toast';
 import { useApp } from '../state/AppContext';
 import { EditorCanvas } from './EditorCanvas';
 import { RightPanel } from './RightPanel';
 import { ThumbnailRail } from './ThumbnailRail';
-import { Toolbar } from './Toolbar';
+import { MobileTabBar, Toolbar } from './Toolbar';
 import { t } from '../i18n/translations';
 import '../styles/editing-screen.css';
 
@@ -15,15 +15,17 @@ export function EditingScreen() {
     <div className="editing-shell">
       <Toolbar />
 
-      <div className="editing-screen" onClick={actions.closeExport}>
+      <div className={`editing-screen${state.toolMode === 'merge' ? ' editing-screen-merge' : ''}`} onClick={actions.closeExport}>
         <ThumbnailRail />
         <EditorCanvas />
         <RightPanel />
       </div>
 
+      <MobileTabBar />
+
       {state.busy && (
         <div className="busy-overlay">
-          <div className="busy-card">
+          <div className="busy-card" role="status">
             <div className="busy-spinner" />
             <span>{state.busy.label}</span>
             {state.busy.total ? (
@@ -36,10 +38,15 @@ export function EditingScreen() {
       )}
 
       {state.error && (
-        <div className="error-banner">
-          <span>{state.error}</span>
-          <button aria-label={t('home.dismiss')} onClick={actions.clearError}>
-            <X size={14} strokeWidth={2.75} />
+        <div className="error-banner alert" role="alert">
+          <span className="alert-mark" aria-hidden="true">
+            !
+          </span>
+          <div className="alert-body">
+            <div className="alert-text">{state.error}</div>
+          </div>
+          <button className="alert-close" aria-label={t('home.dismiss')} onClick={actions.clearError}>
+            <Icon name="close" size={18} strokeWidth={2.4} />
           </button>
         </div>
       )}

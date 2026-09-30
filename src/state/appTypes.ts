@@ -3,6 +3,7 @@ import type { CompressLevel } from '../pdf/ops';
 import type { ExportFormat } from '../pdf/exporters';
 import type { TextItem } from '../pdf/textExtract';
 import type { Lang } from '../i18n/translations';
+import type { SignResult } from '../pdf/sign';
 
 export type Screen = 'empty' | 'reading' | 'editing' | 'beta';
 export type ToolMode = 'merge' | 'split' | 'compress' | 'watermark' | 'reorder' | null;
@@ -26,6 +27,19 @@ export interface QueuedFile {
   size: number;
   kind: 'pdf' | 'image';
 }
+
+/** A picked/dropped file that couldn't be opened, shown as its own alert on
+ * the start screen (wrong format, or over the 50MB limit). */
+export interface FileRejection {
+  id: string;
+  kind: 'type' | 'size';
+  name: string;
+  size: number;
+}
+
+export type SignOutcome =
+  | ({ ok: true; fileName: string } & SignResult)
+  | { ok: false; wrongPassword: boolean; message: string };
 
 export interface BusyState {
   label: string;
@@ -120,6 +134,7 @@ export interface AppState {
   busy: BusyState | null;
   toast: string | null;
   error: string | null;
+  fileRejections: FileRejection[];
   history: HistorySnapshot[];
   future: HistorySnapshot[];
 }

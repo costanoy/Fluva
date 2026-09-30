@@ -1,36 +1,42 @@
 .thumb-rail {
   grid-area: rail;
-  width: 148px;
-  flex-shrink: 0;
-  background: var(--color-surface);
-  border-right: 1px solid var(--color-divider);
-  padding: 16px 12px;
+  min-width: 0;
+  background: var(--paper);
+  border-right: 2px solid var(--graphite);
+  padding: 18px 12px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 18px;
   overflow-y: auto;
+}
+
+.thumb-rail-heading {
+  align-self: flex-start;
+  padding-left: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--graphite-muted);
 }
 
 .thumb-rail-merge {
   align-items: stretch;
-  gap: 4px;
+  gap: 6px;
 }
 
 .thumb-rail-label {
   width: 100%;
   font-size: 13px;
   font-weight: 700;
-  color: var(--color-neutral-600);
-  text-align: center;
+  color: var(--graphite-muted);
   margin-bottom: 4px;
+  padding-left: 4px;
 }
 
 .thumb-rail-empty {
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
-  color: var(--color-neutral-500);
-  text-align: center;
+  color: var(--graphite-muted);
   padding: 8px 4px;
 }
 
@@ -38,46 +44,54 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
-  border-radius: var(--radius-sm);
-  transition: opacity .12s ease;
+  border-radius: 4px;
+  transition: opacity .12s ease-out;
 }
 
 .thumb-item-drop {
-  outline: 2px dashed var(--color-accent);
-  outline-offset: 3px;
+  outline: 2.5px dashed var(--ink-green);
+  outline-offset: 6px;
 }
 
 .thumb-frame {
   position: relative;
-  border-width: 2px;
-  border-style: solid;
-  border-radius: var(--radius-sm);
+  border: 1px solid #CFCBC3;
   overflow: hidden;
   cursor: pointer;
   background: #FFFFFF;
-  box-shadow: var(--shadow-sm);
   line-height: 0;
+}
+
+.thumb-frame-active {
+  border-color: transparent;
+  outline: 3px solid var(--ink-green);
+  outline-offset: 3px;
+}
+
+.thumb-frame:focus-visible {
+  outline: 3px solid var(--ink-pink);
+  outline-offset: 3px;
 }
 
 .thumb-delete {
   position: absolute;
   top: 4px;
   left: 4px;
-  width: 18px;
-  height: 18px;
-  border: none;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--graphite);
   border-radius: 50%;
-  background: rgba(0, 0, 0, .55);
-  color: #FFFFFF;
+  background: var(--paper-raised);
+  color: var(--graphite);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   opacity: 0;
-  transition: opacity .12s ease;
+  transition: opacity .12s ease-out;
 }
 
 .thumb-frame:hover .thumb-delete,
@@ -86,49 +100,61 @@
 }
 
 .thumb-page-label {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--color-neutral-600);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 9px;
+}
+
+.thumb-page-label-active {
+  font-weight: 800;
+  background: var(--ink-green);
+  border-radius: 999px;
+  margin-top: 4px;
 }
 
 .thumb-add {
-  width: 104px;
-  height: 44px;
+  width: 110px;
+  height: 48px;
   flex-shrink: 0;
-  border: 2px dashed var(--color-neutral-400);
-  border-radius: var(--radius-sm);
+  border: 2px dashed var(--graphite);
+  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: var(--color-neutral-600);
+  color: var(--graphite);
   background: transparent;
+  transition: background .14s ease-out;
 }
 
 .thumb-add:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  background: var(--ink-green-tint);
 }
 
 .merge-file-row {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 8px;
-  border-radius: var(--radius-sm);
+  gap: 10px;
+  padding: 10px 8px;
+  border-radius: 9px;
   cursor: pointer;
   border: none;
   font-family: var(--font-body);
+  color: var(--graphite);
   text-align: left;
 }
 
+.merge-file-row:hover {
+  background: var(--paper-toolbar);
+}
+
 .merge-checkbox {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  border-width: 2px;
-  border-style: solid;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: 2px solid var(--graphite);
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -142,28 +168,32 @@
 }
 
 .merge-file-name {
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .merge-file-meta {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--color-neutral-500);
+  font-size: 12.5px;
+  color: var(--graphite-muted);
 }
 
-@media (max-width: 899px) {
+@media (max-width: 768px) {
   .thumb-rail {
-    width: 100%;
-    height: 108px;
+    display: none;
+  }
+
+  /* Em "Juntar" a lista de arquivos continua necessária no celular. */
+  .thumb-rail-merge {
+    display: flex;
     flex-direction: row;
     align-items: center;
-    padding: 0 14px;
+    height: 72px;
+    padding: 0 12px;
     border-right: none;
-    border-top: 1px solid var(--color-divider);
+    border-top: 2px solid var(--graphite);
     overflow-x: auto;
     overflow-y: hidden;
   }
@@ -173,17 +203,14 @@
     display: none;
   }
 
-  .thumb-delete {
-    opacity: 1;
-  }
-
-  .thumb-add {
-    width: 52px;
-    height: 68px;
-  }
-
   .merge-file-row {
-    width: 150px;
+    width: 170px;
+    flex-shrink: 0;
+  }
+
+  .thumb-rail-merge .btn {
+    width: auto;
+    margin-top: 0 !important;
     flex-shrink: 0;
   }
 }

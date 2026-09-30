@@ -1,53 +1,79 @@
+/* Risografia em duas tintas — verde Fluva + rosa fluorescente sobre papel
+   off-white. Os nomes antigos (--color-neutral-*, --color-accent-*) seguem
+   existindo, apontando para a nova paleta, para que os componentes que ainda
+   os usam acompanhem o redesign sem precisar de um nome novo cada um. */
 :root {
-  --color-bg: #DBDBD6;
-  --color-surface: #D2D2CD;
-  --color-text: #2C2C2A;
-  --color-divider: rgba(44, 44, 42, 0.14);
+  /* tintas */
+  --ink-green: #1D9E75;
+  --ink-green-hover: #178A66;
+  --ink-green-text: #0E6B4F;
+  --ink-green-tint: #CFE8DC;
+  --ink-green-select: #BFE3D4;
+  --ink-pink: #FF4FA3;
+  --ink-pink-text: #B3175F;
+  --ink-pink-tint: #FFD3E8;
+  --overprint: #1D314B;
 
-  --color-neutral-100: #F5F5F3;
-  --color-neutral-200: #EBEBE7;
-  --color-neutral-300: #D8D8D3;
-  --color-neutral-400: #B8B8B1;
-  --color-neutral-500: #94948C;
-  --color-neutral-600: #6E6E67;
-  --color-neutral-700: #4E4E48;
-  --color-neutral-800: #383834;
-  --color-neutral-900: #2C2C2A;
+  /* grafite e papel */
+  --graphite: #1F1D1A;
+  --graphite-muted: #4A463F;
+  --graphite-soft: #3A3732;
+  --disabled-text: #6B665E;
+  --disabled-border: #8A857C;
+  --paper: #F5F0E6;
+  --paper-raised: #FBF8F2;
+  --paper-toolbar: #EDE6D8;
+  --divider: #CFC8BA;
+  --divider-soft: #E3DDD1;
+  --doc-canvas: #E6E6E4;
+  --overlay: rgba(31, 29, 26, .62);
 
-  --color-accent: #1D9E75;
-  --color-accent-100: #d0f0e2;
-  --color-accent-200: #a8e0c8;
-  --color-accent-300: #86d1b3;
-  --color-accent-400: #5cc9a8;
-  --color-accent-500: #1D9E75;
-  --color-accent-600: #178562;
-  --color-accent-700: #0F6E56;
-  --color-accent-800: #0b5443;
-  --color-accent-900: #073c31;
+  /* grão de papel — um único SVG de ruído em data URI, repetido */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .12 0 0 0 0 .1 0 0 0 0 .08 .4 0 0 0 -.12'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
 
-  --color-accent-2: #1D9E75;
-  --color-accent-2-100: #d0f0e2;
-  --color-accent-2-200: #a8e0c8;
-  --color-accent-2-300: #86d1b3;
-  --color-accent-2-400: #5cc9a8;
-  --color-accent-2-500: #1D9E75;
-  --color-accent-2-600: #178562;
-  --color-accent-2-700: #0F6E56;
-  --color-accent-2-800: #0b5443;
-  --color-accent-2-900: #073c31;
+  --color-bg: var(--paper);
+  --color-surface: var(--doc-canvas);
+  --color-text: var(--graphite);
+  --color-divider: var(--divider);
 
-  --font-heading: 'Caprasimo', cursive;
-  --font-body: 'Figtree', sans-serif;
-  --font-mono: 'Cousine', monospace;
+  --color-neutral-100: var(--paper-raised);
+  --color-neutral-200: var(--paper-toolbar);
+  --color-neutral-300: var(--divider);
+  --color-neutral-400: var(--disabled-border);
+  --color-neutral-500: var(--graphite-muted);
+  --color-neutral-600: var(--graphite-muted);
+  --color-neutral-700: var(--graphite-soft);
+  --color-neutral-800: var(--graphite);
+  --color-neutral-900: var(--graphite);
 
-  --radius-sm: 8px;
+  --color-accent: var(--ink-green);
+  --color-accent-100: var(--ink-green-tint);
+  --color-accent-200: var(--ink-green-select);
+  --color-accent-600: var(--ink-green-hover);
+  --color-accent-700: var(--ink-green-text);
+  --color-accent-800: var(--ink-green-text);
+
+  --color-accent-2: var(--ink-pink);
+  --color-accent-2-100: var(--ink-pink-tint);
+  --color-accent-2-700: var(--ink-pink-text);
+
+  --font-heading: 'Caprasimo', Georgia, serif;
+  --font-body: 'Figtree', system-ui, sans-serif;
+  --font-mono: 'Figtree', system-ui, sans-serif;
+
+  --radius-sm: 9px;
   --radius-md: 12px;
-  --radius-lg: 20px;
+  --radius-lg: 18px;
   --radius-pill: 999px;
 
-  --shadow-sm: 0 1px 2px rgba(44, 44, 42, .06), 0 1px 3px rgba(44, 44, 42, .08);
-  --shadow-md: 0 4px 12px rgba(44, 44, 42, .10);
-  --shadow-lg: 0 12px 32px rgba(44, 44, 42, .18);
+  /* Sem sombras desfocadas na interface: só a página do documento (papel)
+     e o diálogo têm sombra "realista"; menus usam sombra chapada verde. */
+  --shadow-page: 0 1px 3px rgba(0, 0, 0, .18), 0 8px 24px rgba(0, 0, 0, .10);
+  --shadow-dialog: 0 24px 48px -12px rgba(0, 0, 0, .4);
+  --shadow-flat: 6px 6px 0 var(--ink-green);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: var(--shadow-flat);
 
   --space-1: 4px;
   --space-2: 8px;

@@ -22,7 +22,9 @@ import {
   applySnapshot,
   snapshot,
   type AppState,
+  type FileRejection,
   type QueuedFile,
+  type SignOutcome,
   type Screen,
   type SplitMode,
   type SplitPagesSubMode,
@@ -68,6 +70,7 @@ const initialState: AppState = {
   busy: null,
   toast: null,
   error: null,
+  fileRejections: [],
   history: [],
   future: [],
 };
@@ -311,14 +314,14 @@ export function useFluvaStore() {
 
       addFiles: (files: File[]) => {
         const accepted: QueuedFile[] = [];
-        const rejected: string[] = [];
+        const rejected: FileRejection[] = [];
         for (const file of files) {
           if (!isAcceptedFile(file)) {
-            rejected.push(t('store.rejectedFormat', { name: file.name }));
+            rejected.push({ id: newId('rej'), kind: 'type', name: file.name, size: file.size });
             continue;
           }
           if (file.size > MAX_FILE_BYTES) {
-            rejected.push(t('store.rejectedSize', { name: file.name, size: formatBytes(file.size) }));
+            rejected.push({ id: newId('rej'), kind: 'size', name: file.name, size: file.size });
             continue;
           }
           accepted.push({ id: newId('q'), file, name: file.name, size: file.size, kind: fileKind(file) });
@@ -331,12 +334,13 @@ export function useFluvaStore() {
         // sense, so it falls back to the existing queue + chooser (merge on
         // edit, or batch convert).
         if (accepted.length === 1 && !rejected.length && !st.queue.length) {
-          set({ screen: 'reading', readerFile: accepted[0].file, error: null });
+          set({ screen: 'reading', readerFile: accepted[0].file, error: null, fileRejections: [] });
           return;
         }
         set((cur) => ({
           queue: cur.queue.concat(accepted),
-          error: rejected.length ? t('store.ignored', { list: rejected.join('; ') }) : null,
+          error: null,
+          fileRejections: rejected,
         }));
       },
 
@@ -348,13 +352,17 @@ export function useFluvaStore() {
       removeQueued: (id: string) => set((st) => ({ queue: st.queue.filter((q) => q.id !== id) })),
 
       clearError: () => set({ error: null }),
+      dismissRejection: (id: string) => set((st) => ({ fileRejections: st.fileRejections.filter((r) => r.id !== id) })),
 
       /** Loads every queued file: the first becomes the working document, the rest stay available to merge. */
       /** Loads every queued file into one document — when more than one was
        * picked together, their pages are already joined end to end, rather
        * than opening just the first and leaving the rest to merge by hand. */
-      openQueue: async () => {
-        const queue = stateRef.current.queue;
+      openQueue: async (override?: unknown) => {
+        // An explicit list (from the reader) wins over `state.queue`, which a
+        // `set()` made in the same tick hasn't reached `stateRef` yet. Also
+        // used directly as an onClick handler, hence the array check.
+        const queue = Array.isArray(override) ? (override as QueuedFile[]) : stateRef.current.queue;
         if (!queue.length) return;
         await withBusy(t('store.openingFiles'), async (progress) => {
           const sources: Record<string, SourceDoc> = {};
@@ -411,8 +419,7 @@ export function useFluvaStore() {
       openReaderFileInEditor: async () => {
         const file = stateRef.current.readerFile;
         if (!file) return;
-        set({ queue: [{ id: newId('q'), file, name: file.name, size: file.size, kind: fileKind(file) }] });
-        await actions.openQueue();
+        await actions.openQueue([{ id: newId('q'), file, name: file.name, size: file.size, kind: fileKind(file) }]);
       },
 
       /** Same idea as `openReaderFileInEditor`, for the reader's "Alterar
@@ -420,14 +427,12 @@ export function useFluvaStore() {
       convertReaderFile: async (target: 'pdf' | 'png' | 'jpg') => {
         const file = stateRef.current.readerFile;
         if (!file) return;
-        set({ queue: [{ id: newId('q'), file, name: file.name, size: file.size, kind: fileKind(file) }] });
-        await actions.convertQueue(target);
-        set({ queue: [] });
+        await actions.convertQueue(target, [{ id: newId('q'), file, name: file.name, size: file.size, kind: fileKind(file) }]);
       },
 
       /** Converts every queued file to the chosen format and downloads the result. */
-      convertQueue: async (target: 'pdf' | 'png' | 'jpg') => {
-        const queue = stateRef.current.queue;
+      convertQueue: async (target: 'pdf' | 'png' | 'jpg', override?: QueuedFile[]) => {
+        const queue = override ?? stateRef.current.queue;
         if (!queue.length) return;
         await withBusy(t('store.convertingTo', { format: target.toUpperCase() }), async (progress) => {
           // Loaded on demand rather than at module load — pdf-lib/docx would
@@ -1082,21 +1087,14 @@ export function useFluvaStore() {
 
       /** Bakes the current document, signs it with the user's own certificate,
        * and downloads the result — the certificate and password only ever
-       * exist in memory for this one call (see `pdf/sign.ts`). Errors surface
-       * through the normal `state.error` banner, same as every other action
-       * here; `SignDialog` just watches `state.busy` to close itself once this
-       * settles, success or not, so that banner isn't left hidden behind it. */
-      signAndDownload: async (pfxFile: File, password: string) => {
+       * exist in memory for this one call (see `pdf/sign.ts`). Unlike every
+       * other action here, the outcome is handed straight back to
+       * `SignDialog` instead of going through `state.busy`/`state.error`: a
+       * wrong password is shown inline under the field (keeping the chosen
+       * certificate), and success is a screen of its own inside the dialog. */
+      signAndDownload: async (pfxFile: File, password: string): Promise<SignOutcome> => {
         const st = stateRef.current;
-        if (!pfxFile) {
-          set({ toast: t('sign.selectCertificateFirst') });
-          return;
-        }
-        if (!password) {
-          set({ toast: t('sign.enterPasswordFirst') });
-          return;
-        }
-        await withBusy(t('sign.signing'), async () => {
+        try {
           const [{ buildPdf }, { baseNameFor, downloadBytes }, { signPdf }] = await Promise.all([
             import('../pdf/build'),
             import('../pdf/exporters'),
@@ -1104,11 +1102,14 @@ export function useFluvaStore() {
           ]);
           const pdfBytes = await buildPdf(st.doc);
           const pfxBytes = new Uint8Array(await pfxFile.arrayBuffer());
-          const signed = await signPdf(pdfBytes, pfxBytes, password);
-          const base = baseNameFor(st.doc);
-          downloadBytes(signed, `${base}_assinado.pdf`, 'application/pdf');
-          set({ toast: t('sign.success', { name: base }) });
-        });
+          const result = await signPdf(pdfBytes, pfxBytes, password);
+          const fileName = `${baseNameFor(st.doc)}_assinado.pdf`;
+          downloadBytes(result.bytes, fileName, 'application/pdf');
+          return { ok: true, fileName, ...result };
+        } catch (err) {
+          const wrongPassword = !!err && typeof err === 'object' && (err as { code?: string }).code === 'wrong-password';
+          return { ok: false, wrongPassword, message: err instanceof Error ? err.message : t('store.genericError') };
+        }
       },
 
       /* ----------------------------------------------------------------- zoom */

@@ -64,8 +64,10 @@ function AppShell() {
   }, [state.screen, state.dirty, actions]);
 
   return (
-    <div style={{ width: '100%', height: '100dvh', background: 'var(--color-bg)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <TopBar />
+    <div style={{ width: '100%', height: '100dvh', background: 'var(--paper)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Home and reader carry their own headers (see SiteHeader/ReaderScreen);
+          only the editor uses this shared top bar. */}
+      {state.screen === 'editing' && <TopBar />}
       {state.screen === 'empty' ? (
         <EmptyState />
       ) : state.screen === 'reading' ? (

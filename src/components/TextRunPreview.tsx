@@ -149,7 +149,7 @@ export function TextRunPreview({ page, scale }: { page: WorkPage; scale: number 
           // TextRunLayer's highlighted `.text-run-selected` state underneath,
           // so nothing on screen showed which run was actually being edited
           // until the first drag or commit turned it into a real overlay.
-          boxShadow: '0 0 0 2px var(--color-accent)',
+          boxShadow: '0 0 0 1.5px var(--ink-green)',
           pointerEvents: 'none',
           transition: smoothTransition,
         }}
@@ -198,15 +198,14 @@ export function TextRunPreview({ page, scale }: { page: WorkPage; scale: number 
           height: 28,
           padding: 0,
           borderRadius: '50%',
-          border: '2px solid #FFFFFF',
-          background: 'var(--color-accent)',
-          color: '#FFFFFF',
+          border: '2px solid var(--graphite)',
+          background: 'var(--ink-green)',
+          color: 'var(--graphite)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: isDraggingHandle ? 'grabbing' : 'grab',
-          boxShadow: 'var(--shadow-sm)',
-          touchAction: 'none',
+                    touchAction: 'none',
           transition: smoothTransition,
         }}
       >

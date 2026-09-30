@@ -1,7 +1,51 @@
 import { PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString } from 'pdf-lib';
 import { t } from '../i18n/translations';
 
-export class SignPdfError extends Error {}
+export class SignPdfError extends Error {
+  constructor(
+    message: string,
+    /** Set only for the one failure the dialog handles inline (7a). */
+    public readonly code?: 'wrong-password',
+  ) {
+    super(message);
+  }
+}
+
+/** Read straight from the signer's own certificate — shown back to the user
+ * once signing succeeds, nothing here is invented or looked up elsewhere. */
+export interface SignerInfo {
+  name: string | null;
+  /** ICP-Brasil e-CPF certificates carry the CPF after the name in the CN
+   * ("NOME:12345678900") — masked here, never kept whole. */
+  cpfMasked: string | null;
+  validUntil: Date | null;
+  icpBrasil: boolean;
+}
+
+export interface SignResult {
+  bytes: Uint8Array;
+  signer: SignerInfo;
+  signedAt: Date;
+}
+
+function describeSigner(certificate: import('node-forge').pki.Certificate): SignerInfo {
+  const cn = certificate.subject.getField('CN')?.value as string | undefined;
+  let name: string | null = cn?.trim() || null;
+  let cpfMasked: string | null = null;
+  const m = cn?.match(/^(.*?):(\d{11})$/);
+  if (m) {
+    name = m[1].trim() || null;
+    const d = m[2];
+    cpfMasked = `***.${d.slice(3, 6)}.${d.slice(6, 9)}-**`;
+  }
+  const issuerOrg = certificate.issuer.getField('O')?.value as string | undefined;
+  return {
+    name,
+    cpfMasked,
+    validUntil: certificate.validity?.notAfter ?? null,
+    icpBrasil: !!issuerOrg && /icp-brasil/i.test(issuerOrg),
+  };
+}
 
 /**
  * PAdES-B signing: the user supplies their own already-issued ICP-Brasil A1
@@ -148,7 +192,7 @@ function toArrayBufferView(bytes: Uint8Array): import('node-forge').util.ArrayBu
   return bytes as unknown as import('node-forge').util.ArrayBufferView;
 }
 
-async function signWithForge(data: Uint8Array, pfxBytes: Uint8Array, password: string): Promise<string> {
+async function signWithForge(data: Uint8Array, pfxBytes: Uint8Array, password: string): Promise<{ hex: string; signer: SignerInfo }> {
   const forge = await import('node-forge');
 
   let p12;
@@ -156,7 +200,7 @@ async function signWithForge(data: Uint8Array, pfxBytes: Uint8Array, password: s
     const p12Asn1 = forge.asn1.fromDer(forge.util.createBuffer(toArrayBufferView(pfxBytes)));
     p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);
   } catch {
-    throw new SignPdfError(t('sign.wrongPasswordOrFile'));
+    throw new SignPdfError(t('sign.wrongPasswordOrFile'), 'wrong-password');
   }
 
   const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] ?? [];
@@ -197,7 +241,7 @@ async function signWithForge(data: Uint8Array, pfxBytes: Uint8Array, password: s
   if (hex.length > CONTENTS_PLACEHOLDER_HEX.length) {
     throw new SignPdfError(t('sign.signatureTooLarge'));
   }
-  return hex;
+  return { hex, signer: describeSigner(certificate) };
 }
 
 /**
@@ -206,11 +250,12 @@ async function signWithForge(data: Uint8Array, pfxBytes: Uint8Array, password: s
  * transmits the certificate or password anywhere — everything happens
  * in-memory, client-side.
  */
-export async function signPdf(pdfBytes: Uint8Array, pfxBytes: Uint8Array, password: string): Promise<Uint8Array> {
+export async function signPdf(pdfBytes: Uint8Array, pfxBytes: Uint8Array, password: string): Promise<SignResult> {
   const withPlaceholder = await addSignaturePlaceholder(pdfBytes);
   const { patched, signedRegion, contentsHexStart } = computeByteRangeAndSignedRegion(withPlaceholder);
-  const signatureHex = await signWithForge(signedRegion, pfxBytes, password);
+  const signedAt = new Date();
+  const { hex: signatureHex, signer } = await signWithForge(signedRegion, pfxBytes, password);
   const paddedHex = signatureHex.padEnd(CONTENTS_PLACEHOLDER_HEX.length, '0');
   patched.set(new TextEncoder().encode(paddedHex), contentsHexStart);
-  return patched;
+  return { bytes: patched, signer, signedAt };
 }

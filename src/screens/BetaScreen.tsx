@@ -1,6 +1,8 @@
-import { FlaskConical } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Footer } from '../components/Footer';
+import { Icon } from '../components/Icon';
+import { RisoHeading } from '../components/Logo';
+import { SiteHeader } from '../components/SiteHeader';
 import { useApp } from '../state/AppContext';
 import { t } from '../i18n/translations';
 import '../styles/empty-state.css';
@@ -19,27 +21,28 @@ export function BetaScreen() {
   const [bodyBefore, bodyAfter] = t('beta.body', { email: EMAIL_SENTINEL }).split(EMAIL_SENTINEL);
 
   return (
-    <div className="empty-state">
-      <div className="empty-state-inner">
-        <div className="empty-state-content">
-          <div className="pending-card" style={{ padding: '28px 26px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div className="dropzone-icon">
-              <FlaskConical size={20} strokeWidth={2.75} color="var(--color-accent)" />
-            </div>
-            <h4 style={{ textAlign: 'center' }}>{t('beta.title')}</h4>
-            <p style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--color-neutral-700)', margin: 0, textAlign: 'justify' }}>
-              {bodyBefore}
-              <strong>{EMAIL}</strong>
-              {bodyAfter}
-            </p>
-
-            <Button variant="primary" style={{ alignSelf: 'flex-start', marginTop: 4 }} onClick={() => actions.setScreen('empty')}>
-              {t('beta.back')}
-            </Button>
-          </div>
-        </div>
-        <Footer />
+    <div className="home grain">
+      <SiteHeader />
+      <div className="beta-card">
+        <span className="tool-card-icon halftone-pink">
+          <Icon name="phone" size={30} />
+        </span>
+        <RisoHeading as="h1" className="beta-card-title" shadowText={t('beta.title')}>
+          {t('beta.title')}
+        </RisoHeading>
+        <p>
+          {bodyBefore}
+          <a href={`mailto:${EMAIL}`}>
+            <strong>{EMAIL}</strong>
+          </a>
+          {bodyAfter}
+        </p>
+        <Button variant="primary" style={{ alignSelf: 'flex-start' }} onClick={() => actions.setScreen('empty')}>
+          <Icon name="chevronLeft" size={18} />
+          {t('beta.back')}
+        </Button>
       </div>
+      <Footer />
     </div>
   );
 }

@@ -61,6 +61,7 @@ export function TextRunLayer({ page, scale }: { page: WorkPage; scale: number })
           <button
             key={item.id}
             className={`text-run${selected ? ' text-run-selected' : ''}`}
+            data-tag={selected ? t('panel.editingTag') : undefined}
             title={t('run.detectedRun', { font: item.originalFont, size: Math.round(item.fontSize) })}
             style={{
               left: item.x * scale,

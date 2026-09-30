@@ -12,7 +12,7 @@ const segStyle = (active: boolean): CSSProperties => ({
   justifyContent: 'center',
   gap: 6,
   background: active ? 'var(--color-accent)' : 'transparent',
-  color: active ? '#FFFFFF' : 'var(--color-text)',
+  color: 'var(--graphite)',
 });
 
 const subModeStyle = (active: boolean): CSSProperties => ({
@@ -27,7 +27,7 @@ export function SplitPanel() {
 
   return (
     <>
-      <h6 style={{ color: 'var(--color-accent-2-700)' }}>{t('split.title')}</h6>
+      <h6 className="panel-title">{t('split.title')}</h6>
 
       <div className="segmented">
         <button className="segmented-btn" style={segStyle(state.splitMode === 'range')} onClick={() => actions.setSplitMode('range')}>
@@ -149,11 +149,10 @@ function PagesPanel({ state, actions }: { state: AppState; actions: FluvaActions
             <span
               className="merge-checkbox"
               style={{
-                borderColor: state.splitMergeSelected ? 'var(--color-accent)' : 'var(--color-neutral-400)',
-                background: state.splitMergeSelected ? 'var(--color-accent)' : 'transparent',
+                background: state.splitMergeSelected ? 'var(--ink-green)' : '#FFFFFF',
               }}
             >
-              {state.splitMergeSelected && <Check size={10} strokeWidth={3.5} color="#fff" />}
+              {state.splitMergeSelected && <Check size={12} strokeWidth={3.5} color="var(--graphite)" />}
             </span>
             {t('split.mergeSelected')}
           </button>

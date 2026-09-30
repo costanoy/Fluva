@@ -1,6 +1,8 @@
+/* Área do documento: cinza neutro, liso, sem grão nem efeito algum — a
+   página branca mostra as cores reais do PDF. */
 .canvas-area {
   grid-area: canvas;
-  background: var(--color-surface);
+  background: var(--doc-canvas);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -27,8 +29,7 @@
 }
 
 .doc-page {
-  box-shadow: var(--shadow-md);
-  border-radius: 2px;
+  box-shadow: var(--shadow-page);
 }
 
 .text-run {
@@ -37,16 +38,34 @@
   background: transparent;
   padding: 0;
   cursor: text;
-  border-radius: 2px;
-  transition: background .1s ease;
+  border-radius: 1px;
+  transition: background .12s ease-out;
 }
 
 .text-run:hover {
-  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--ink-green) 18%, transparent);
 }
 
 .text-run-selected {
-  background: color-mix(in srgb, var(--color-accent) 32%, transparent);
-  outline: 1.5px solid var(--color-accent);
+  background: color-mix(in srgb, var(--ink-green-select) 70%, transparent);
+  outline: 1.5px solid var(--ink-green);
+  outline-offset: 2px;
 }
 
+/* Etiqueta "Editando texto" acima do trecho selecionado. */
+.text-run-selected::before {
+  content: attr(data-tag);
+  position: absolute;
+  left: -3px;
+  bottom: calc(100% + 6px);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: var(--ink-green);
+  color: var(--graphite);
+  padding: 2px 7px;
+  border-radius: 5px;
+  pointer-events: none;
+}
