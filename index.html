@@ -7,6 +7,10 @@
     <meta name="description" content="Edite, junte, divida, comprima e converta arquivos PDF e imagens gratuitamente, direto no navegador, sem instalar nada e sem cadastro." />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://fluva.cyberhat.com.br/" />
+    <!-- Cada idioma tem o seu endereço; o app lê o idioma do caminho (ver src/i18n/translations.ts). -->
+    <link rel="alternate" hreflang="pt-BR" href="https://fluva.cyberhat.com.br/" />
+    <link rel="alternate" hreflang="en" href="https://fluva.cyberhat.com.br/en/" />
+    <link rel="alternate" hreflang="x-default" href="https://fluva.cyberhat.com.br/" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <link rel="icon" type="image/png" sizes="96x96" href="/favicon.png?v=2" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
@@ -21,6 +25,7 @@
     <meta property="og:image" content="https://fluva.cyberhat.com.br/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Fluva, editor de PDF e imagens online grátis" />
     <meta property="og:locale" content="pt_BR" />
     <meta property="og:locale:alternate" content="en_US" />
 
@@ -29,6 +34,7 @@
     <meta name="twitter:title" content="Fluva: editor de PDF e imagens online grátis" />
     <meta name="twitter:description" content="Edite, junte, divida, comprima e converta arquivos PDF e imagens gratuitamente, direto no navegador, sem instalar nada e sem cadastro." />
     <meta name="twitter:image" content="https://fluva.cyberhat.com.br/og-image.png" />
+    <meta name="twitter:image:alt" content="Fluva, editor de PDF e imagens online grátis" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -44,9 +50,13 @@
         "name": "Fluva",
         "url": "https://fluva.cyberhat.com.br/",
         "description": "Edite, junte, divida, comprima e converta arquivos PDF e imagens gratuitamente, direto no navegador, sem instalar nada e sem cadastro.",
-        "applicationCategory": "Utility",
-        "operatingSystem": "Any (navegador web)",
-        "inLanguage": ["pt-BR", "en"],
+        "image": "https://fluva.cyberhat.com.br/og-image.png",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript",
+        "inLanguage": "pt-BR",
+        "isAccessibleForFree": true,
+        "featureList": ["Editar texto e imagens","Juntar PDFs","Dividir PDF","Comprimir","Girar páginas","Marca d'água","Converter formatos (PDF, PNG, JPG)","Assinatura digital (ICP-Brasil · PAdES)"],
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -54,9 +64,50 @@
         }
       }
     </script>
+
+    <style>
+      /* Só o texto estático abaixo; o app traz os próprios estilos. O título
+         fica na mesma posição e tamanho do título real, para a troca não saltar. */
+      .boot { padding: 22px 72px; font-family: Figtree, system-ui, sans-serif; color: #1F1D1A; }
+      .boot .boot-brand { margin: 0 0 48px; font: 28px/46px Caprasimo, Georgia, serif; }
+      .boot h1 { margin: 0 0 40px; max-width: 900px; font: 50px/1.06 Caprasimo, Georgia, serif; letter-spacing: -.01em; text-wrap: balance; }
+      .boot h2 { margin: 40px 0 16px; font: 30px/1.1 Caprasimo, Georgia, serif; }
+      .boot p, .boot li { max-width: 640px; font-size: 17px; line-height: 1.5; }
+      .boot a { color: #0E6B4F; }
+      @media (max-width: 768px) {
+        .boot { padding: 18px 20px; }
+        .boot .boot-brand { margin-bottom: 25px; font-size: 23px; line-height: 37px; }
+        .boot h1 { margin-bottom: 24px; font-size: 30px; line-height: 1.08; }
+      }
+    </style>
   </head>
-  <body>
-    <div id="root"></div>
+  <body style="margin: 0; background-color: #F5F0E6">
+    <div id="root">
+      <!-- Texto estático da página: é o que aparece enquanto o app carrega e o
+           que leem os buscadores e prévias de link que não executam JavaScript.
+           O React substitui tudo isto ao montar. -->
+      <div class="boot">
+        <p class="boot-brand">Fluva</p>
+        <main>
+          <h1>Fluva: editor de PDF e imagens online grátis</h1>
+          <p>Edite, junte, divida, comprima e converta arquivos PDF e imagens gratuitamente, direto no navegador, sem instalar nada e sem cadastro.</p>
+          <h2>O que dá pra fazer, de graça</h2>
+          <ul>
+            <li>Editar texto e imagens</li>
+            <li>Juntar PDFs</li>
+            <li>Dividir PDF</li>
+            <li>Comprimir</li>
+            <li>Girar páginas</li>
+            <li>Marca d'água</li>
+            <li>Converter formatos (PDF, PNG, JPG)</li>
+            <li>Assinatura digital (ICP-Brasil · PAdES)</li>
+          </ul>
+          <p>Editor de PDF leve e rápido. Seus arquivos ficam no seu aparelho.</p>
+          <p><a href="/en/" hreflang="en" lang="en">English version</a></p>
+          <noscript><p><strong>O Fluva precisa de JavaScript ativado para abrir e editar seus arquivos.</strong></p></noscript>
+        </main>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

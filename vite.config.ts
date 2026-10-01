@@ -46,6 +46,10 @@ export default defineConfig({
   ],
   build: {
     rollupOptions: {
+      // One HTML entry per language: each address ("/" and "/en/") ships its
+      // own static <head> and fallback text, which is what search engines and
+      // link previews read. Both load the same app (see i18n/translations.ts).
+      input: { main: 'index.html', en: 'en/index.html' },
       output: {
         // pdfjs-dist and react are needed eagerly (the reader renders pages
         // with pdf.js on first load), so they're still worth pulling into

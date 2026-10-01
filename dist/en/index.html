@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Fluva: editor de PDF e imagens online grátis</title>
-    <meta name="description" content="Edite, junte, divida, comprima e converta arquivos PDF e imagens gratuitamente, direto no navegador, sem instalar nada e sem cadastro." />
+    <title>Fluva: free online PDF and image editor</title>
+    <meta name="description" content="Edit, merge, split, compress and convert PDF files and images for free, right in your browser, with nothing to install and no sign-up." />
     <meta name="robots" content="index, follow" />
-    <link rel="canonical" href="https://fluva.cyberhat.com.br/" />
+    <link rel="canonical" href="https://fluva.cyberhat.com.br/en/" />
     <!-- Cada idioma tem o seu endereço; o app lê o idioma do caminho (ver src/i18n/translations.ts). -->
     <link rel="alternate" hreflang="pt-BR" href="https://fluva.cyberhat.com.br/" />
     <link rel="alternate" hreflang="en" href="https://fluva.cyberhat.com.br/en/" />
@@ -19,22 +19,22 @@
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Fluva" />
-    <meta property="og:url" content="https://fluva.cyberhat.com.br/" />
-    <meta property="og:title" content="Fluva: editor de PDF e imagens online grátis" />
-    <meta property="og:description" content="Edite, junte, divida, comprima e converta arquivos PDF e imagens gratuitamente, direto no navegador, sem instalar nada e sem cadastro." />
+    <meta property="og:url" content="https://fluva.cyberhat.com.br/en/" />
+    <meta property="og:title" content="Fluva: free online PDF and image editor" />
+    <meta property="og:description" content="Edit, merge, split, compress and convert PDF files and images for free, right in your browser, with nothing to install and no sign-up." />
     <meta property="og:image" content="https://fluva.cyberhat.com.br/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Fluva, editor de PDF e imagens online grátis" />
-    <meta property="og:locale" content="pt_BR" />
-    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:image:alt" content="Fluva, a free online PDF and image editor" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="pt_BR" />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Fluva: editor de PDF e imagens online grátis" />
-    <meta name="twitter:description" content="Edite, junte, divida, comprima e converta arquivos PDF e imagens gratuitamente, direto no navegador, sem instalar nada e sem cadastro." />
+    <meta name="twitter:title" content="Fluva: free online PDF and image editor" />
+    <meta name="twitter:description" content="Edit, merge, split, compress and convert PDF files and images for free, right in your browser, with nothing to install and no sign-up." />
     <meta name="twitter:image" content="https://fluva.cyberhat.com.br/og-image.png" />
-    <meta name="twitter:image:alt" content="Fluva, editor de PDF e imagens online grátis" />
+    <meta name="twitter:image:alt" content="Fluva, a free online PDF and image editor" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -48,15 +48,15 @@
         "@context": "https://schema.org",
         "@type": "WebApplication",
         "name": "Fluva",
-        "url": "https://fluva.cyberhat.com.br/",
-        "description": "Edite, junte, divida, comprima e converta arquivos PDF e imagens gratuitamente, direto no navegador, sem instalar nada e sem cadastro.",
+        "url": "https://fluva.cyberhat.com.br/en/",
+        "description": "Edit, merge, split, compress and convert PDF files and images for free, right in your browser, with nothing to install and no sign-up.",
         "image": "https://fluva.cyberhat.com.br/og-image.png",
         "applicationCategory": "UtilitiesApplication",
         "operatingSystem": "Any",
         "browserRequirements": "Requires JavaScript",
-        "inLanguage": "pt-BR",
+        "inLanguage": "en",
         "isAccessibleForFree": true,
-        "featureList": ["Editar texto e imagens","Juntar PDFs","Dividir PDF","Comprimir","Girar páginas","Marca d'água","Converter formatos (PDF, PNG, JPG)","Assinatura digital (ICP-Brasil · PAdES)"],
+        "featureList": ["Edit text and images","Merge PDFs","Split a PDF","Compress files","Rotate pages","Add a watermark","Convert formats (PDF, PNG, JPG)","Digital signature (ICP-Brasil · PAdES)"],
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -87,28 +87,28 @@
   <link rel="manifest" href="/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/registerSW.js"></script></head>
   <body style="margin: 0; background-color: #F5F0E6">
     <div id="root">
-      <!-- Texto estático da página: é o que aparece enquanto o app carrega e o
-           que leem os buscadores e prévias de link que não executam JavaScript.
-           O React substitui tudo isto ao montar. -->
+      <!-- Static page text: what shows while the app loads and what search
+           engines and link previews that don't run JavaScript read. React
+           replaces all of it on mount. Keep in step with ../index.html. -->
       <div class="boot">
         <p class="boot-brand">Fluva</p>
         <main>
-          <h1>Fluva: editor de PDF e imagens online grátis</h1>
-          <p>Edite, junte, divida, comprima e converta arquivos PDF e imagens gratuitamente, direto no navegador, sem instalar nada e sem cadastro.</p>
-          <h2>O que dá pra fazer, de graça</h2>
+          <h1>Fluva: free online PDF and image editor</h1>
+          <p>Edit, merge, split, compress and convert PDF files and images for free, right in your browser, with nothing to install and no sign-up.</p>
+          <h2>What you can do, for free</h2>
           <ul>
-            <li>Editar texto e imagens</li>
-            <li>Juntar PDFs</li>
-            <li>Dividir PDF</li>
-            <li>Comprimir</li>
-            <li>Girar páginas</li>
-            <li>Marca d'água</li>
-            <li>Converter formatos (PDF, PNG, JPG)</li>
-            <li>Assinatura digital (ICP-Brasil · PAdES)</li>
+            <li>Edit text and images</li>
+            <li>Merge PDFs</li>
+            <li>Split a PDF</li>
+            <li>Compress files</li>
+            <li>Rotate pages</li>
+            <li>Add a watermark</li>
+            <li>Convert formats (PDF, PNG, JPG)</li>
+            <li>Digital signature (ICP-Brasil · PAdES)</li>
           </ul>
-          <p>Editor de PDF leve e rápido. Seus arquivos ficam no seu aparelho.</p>
-          <p><a href="/en/" hreflang="en" lang="en">English version</a></p>
-          <noscript><p><strong>O Fluva precisa de JavaScript ativado para abrir e editar seus arquivos.</strong></p></noscript>
+          <p>A light, fast PDF editor. Your files stay on your device.</p>
+          <p><a href="/" hreflang="pt-BR" lang="pt-BR">Versão em português</a></p>
+          <noscript><p><strong>Fluva needs JavaScript enabled to open and edit your files.</strong></p></noscript>
         </main>
       </div>
     </div>

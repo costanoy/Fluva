@@ -6,7 +6,7 @@ import { Logo } from './Logo';
 import { useApp } from '../state/AppContext';
 import { useInstallPrompt } from '../hooks/useInstallPrompt';
 import { buildPixPayload, normalizePixKey } from '../pix';
-import { t, type Lang } from '../i18n/translations';
+import { homePath, t, type Lang } from '../i18n/translations';
 
 const PIX_PAYLOAD = buildPixPayload({ key: normalizePixKey('142.353.286-46'), name: 'VINICIUS COSTA', city: 'BRASILIA' });
 
@@ -58,7 +58,7 @@ export function LangToggle() {
 /** Cabeçalho do site (início e tela do app de testes): logo à esquerda,
  * navegação à direita; no celular a navegação vira um menu. */
 export function SiteHeader({ showToolsLink = false }: { showToolsLink?: boolean }) {
-  const { actions } = useApp();
+  const { state, actions } = useApp();
   const install = useInstallPrompt();
   const [donateOpen, setDonateOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -111,7 +111,7 @@ export function SiteHeader({ showToolsLink = false }: { showToolsLink?: boolean 
   return (
     <header className="site-header">
       <a
-        href="/"
+        href={homePath(state.lang)}
         className="site-brand"
         onClick={(e) => {
           if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;

@@ -9,6 +9,7 @@ export type Lang = 'pt' | 'en';
 const pt = {
   // ---- home / empty state ----
   'home.pageTitle': 'Fluva: editor de PDF e imagens online grátis',
+  'meta.description': 'Edite, junte, divida, comprima e converta arquivos PDF e imagens gratuitamente, direto no navegador, sem instalar nada e sem cadastro.',
   'home.dropzoneTitle': 'Arraste seus arquivos aqui ou clique para selecionar',
   'home.dropzoneSub': 'PDF · PNG · JPG · até 50MB por arquivo',
   'home.dismiss': 'Dispensar',
@@ -386,6 +387,7 @@ export type TranslationKey = keyof typeof pt;
 const en: Record<TranslationKey, string> = {
   // ---- home / empty state ----
   'home.pageTitle': 'Fluva: free online PDF and image editor',
+  'meta.description': 'Edit, merge, split, compress and convert PDF files and images for free, right in your browser, with nothing to install and no sign-up.',
   'home.dropzoneTitle': 'Drag your files here or click to browse',
   'home.dropzoneSub': 'PDF · PNG · JPG · up to 50MB per file',
   'home.dismiss': 'Dismiss',
@@ -761,7 +763,7 @@ const en: Record<TranslationKey, string> = {
 
 const dictionaries: Record<Lang, Record<TranslationKey, string>> = { pt, en };
 
-/** Browser locale first, defaulting to Portuguese since that's the app's primary audience. */
+/** The device's locale, defaulting to Portuguese since that's the app's primary audience. */
 function detectLang(): Lang {
   if (typeof navigator === 'undefined') return 'pt';
   return navigator.language.toLowerCase().startsWith('pt') ? 'pt' : 'en';
@@ -775,11 +777,59 @@ function loadStoredLang(): Lang | null {
   return stored === 'pt' || stored === 'en' ? stored : null;
 }
 
+// On the website each language has its own address ("/" in Portuguese,
+// "/en/" in English, each with its own static <head>), so the address decides
+// the language rather than the browser's locale: search engines crawl with an
+// English-locale browser, and sniffing it served them the English app under
+// the Portuguese title. The desktop/Android shell has no public address to
+// keep in sync, so it still follows the stored choice or the device's locale.
+const EN_PATH = '/en/';
+const IN_APP_SHELL = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const HAS_ADDRESS = typeof window !== 'undefined' && !IN_APP_SHELL;
+
+function pathLang(): Lang {
+  return /^\/en(\/|$)/.test(window.location.pathname) ? 'en' : 'pt';
+}
+
+/** Where the start screen lives in the given language. */
+export function homePath(lang: Lang = currentLang): string {
+  return lang === 'en' ? EN_PATH : '/';
+}
+
+function setMeta(selector: string, content: string): void {
+  document.querySelector(selector)?.setAttribute('content', content);
+}
+
+/** Keeps the address and the document's own language, title and description
+ * in step with a language picked inside the app, without reloading it. */
+function syncDocument(lang: Lang): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
+  if (!HAS_ADDRESS) return;
+  const { location, history } = window;
+  if (pathLang() !== lang) history.replaceState(history.state, '', homePath(lang) + location.search + location.hash);
+  document.title = dictionaries[lang]['home.pageTitle'];
+  setMeta('meta[name="description"]', dictionaries[lang]['meta.description']);
+  // Same host the static tag names, whichever one the page was reached through.
+  const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  if (canonical) canonical.href = new URL(homePath(lang), canonical.href).href;
+}
+
+function initialLang(): Lang {
+  const stored = loadStoredLang();
+  if (!HAS_ADDRESS) return stored ?? detectLang();
+  // The one exception to "the address decides": someone who already chose
+  // English and comes back through the root address (a bookmark, the
+  // installed app's start URL) keeps their choice.
+  return stored === 'en' ? 'en' : pathLang();
+}
+
 // A module-level mirror of the current language, not just React state — so
 // plain functions outside any component (the pdf/ pipeline's toasts and
 // thrown errors) can call `t()` too, without every one of them needing
 // `lang` threaded through its signature just to phrase a message.
-let currentLang: Lang = loadStoredLang() ?? detectLang();
+let currentLang: Lang = initialLang();
+syncDocument(currentLang);
 
 export function getLang(): Lang {
   return currentLang;
@@ -788,7 +838,7 @@ export function getLang(): Lang {
 export function setLang(lang: Lang): void {
   currentLang = lang;
   if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, lang);
-  if (typeof document !== 'undefined') document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
+  syncDocument(lang);
 }
 
 /** Translates `key` in the current language, filling in any `{name}` placeholders from `vars`. */
