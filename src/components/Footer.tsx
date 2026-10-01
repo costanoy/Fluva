@@ -4,7 +4,7 @@ import { t } from '../i18n/translations';
 
 const CONTACT_EMAIL = 'vinicostamaga@outlook.com';
 
-/** Rodapé verde com grão, logo mono e o "Fluva" gigante em rosa (sobreimpressão). */
+/** Rodapé verde com grão e a logo mono. */
 export function Footer() {
   const install = useInstallPrompt();
 
@@ -33,9 +33,6 @@ export function Footer() {
       <div className="site-footer-legal">
         <span>© {new Date().getFullYear()} Fluva</span>
         <span>fluva.cyberhat.com.br</span>
-      </div>
-      <div className="site-footer-giant" aria-hidden="true">
-        Fluva
       </div>
     </footer>
   );
