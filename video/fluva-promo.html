@@ -1,0 +1,343 @@
+<!doctype html>
+<!-- Vídeo de divulgação do Fluva (1920×1080, 45 s, 30 fps).
+     Toda a animação é uma função do tempo: window.seek(t) posiciona tudo no
+     segundo t. O render.mjs chama seek() quadro a quadro e junta com o áudio.
+     Para assistir no navegador: abra este arquivo com ?play na URL. -->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Caprasimo&family=Figtree:wght@500;600;700;800&display=block" rel="stylesheet">
+<style>
+:root{--green:#1D9E75;--green-text:#0E6B4F;--green-tint:#CFE8DC;--pink:#FF4FA3;--pink-text:#B3175F;--pink-tint:#FFD3E8;--ink:#1F1D1A;--muted:#4A463F;--paper:#F5F0E6;--raised:#FBF8F2;--navy:#1D314B;
+--grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .12 0 0 0 0 .1 0 0 0 0 .08 .4 0 0 0 -.12'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
+*{box-sizing:border-box}
+html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:#000}
+body{font-family:Figtree,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+#stage{position:absolute;inset:0;overflow:hidden;background-color:var(--paper);background-image:var(--grain)}
+.scene{position:absolute;inset:0;opacity:0}
+.abs{position:absolute}
+.cap{font-family:Caprasimo,serif;font-weight:400;line-height:1}
+.riso{text-shadow:7px 6px 0 var(--pink)}
+.dots-g{background-image:radial-gradient(circle,var(--green) 3.6px,transparent 4.3px);background-size:14px 14px;border-radius:50%;mix-blend-mode:multiply}
+.dots-p{background-image:radial-gradient(circle,var(--pink) 3.6px,transparent 4.3px);background-size:14px 14px;border-radius:50%;mix-blend-mode:multiply}
+.disc-p{background:var(--pink);border-radius:50%;mix-blend-mode:multiply}
+.disc-g{background:var(--green);border-radius:50%;mix-blend-mode:multiply}
+.wipe{position:absolute;top:0;left:-20%;width:140%;height:100%;z-index:50;transform:translateX(-130%)}
+.wipe.p{background-color:var(--pink);background-image:var(--grain)}
+.wipe.g{background-color:var(--green);background-image:var(--grain)}
+
+/* intro */
+#i-dots{left:420px;top:150px;width:620px;height:620px}
+#i-disc{left:900px;top:330px;width:560px;height:560px}
+#i-logo{left:660px;top:315px;width:600px;height:450px}
+#i-word{left:820px;top:400px;font-size:300px;white-space:nowrap}
+#i-sub{left:0;right:0;top:915px;text-align:center;font-size:62px;font-weight:700;color:var(--muted)}
+
+/* título */
+#t-wrap{left:140px;top:210px}
+.t-line{font-size:180px;white-space:nowrap;display:block}
+#t-dots{right:40px;top:50px;width:420px;height:420px}
+#t-disc{right:-230px;top:600px;width:640px;height:640px}
+
+/* arrastar */
+#d-zone{left:210px;top:170px;width:1500px;height:740px;border:7px dashed var(--ink);border-radius:60px;background:var(--raised)}
+#d-over{left:210px;top:170px;width:1500px;height:740px;border:8px solid var(--ink);border-radius:60px;background:var(--pink-tint);overflow:hidden}
+#d-over i{position:absolute;inset:0;background-image:radial-gradient(circle,var(--pink) 5px,transparent 6px);background-size:20px 20px;-webkit-mask-image:linear-gradient(90deg,#000,transparent 42%,transparent 58%,#000);mix-blend-mode:multiply}
+#d-up{left:860px;top:300px;width:200px;height:200px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center}
+#d-txt{left:0;right:0;top:560px;text-align:center;font-size:64px;font-weight:700}
+#d-sub{left:0;right:0;top:660px;text-align:center;font-size:42px;color:var(--muted);font-weight:500}
+#d-drop{left:0;right:0;top:540px;text-align:center;font-size:170px;text-shadow:8px 7px 0 var(--green)}
+.doc{width:250px;height:320px;background:#fff;border:5px solid var(--ink);border-radius:12px;padding:26px;display:flex;flex-direction:column;justify-content:flex-end;gap:14px}
+.doc b{display:block;height:11px;border-radius:6px;background:#D8D4CC}
+.doc span{align-self:flex-start;margin-top:10px;font-size:26px;font-weight:800;background:var(--ink);color:#fff;padding:3px 12px;border-radius:8px}
+#d-doc{left:835px;top:150px}
+
+/* ferramentas */
+.tool{position:absolute;inset:0;opacity:0}
+.tool .num{position:absolute;left:150px;top:300px;font-size:34px;font-weight:800;letter-spacing:.14em;color:var(--muted)}
+.tool .name{position:absolute;left:144px;top:360px;width:880px;font-size:144px;line-height:1.02;text-wrap:balance}
+.tool .sub{position:absolute;left:150px;top:690px;font-size:44px;font-weight:700;color:var(--green-text)}
+.art{position:absolute;left:1040px;top:160px;width:760px;height:760px}
+.art .bg{position:absolute;inset:0}
+.pg{position:absolute;left:190px;top:135px;width:380px;height:490px;background:#fff;border:5px solid var(--ink);border-radius:12px;padding:44px 38px;display:flex;flex-direction:column;gap:20px}
+.pg b{display:block;height:13px;border-radius:7px;background:#CFCBC3}
+.pg b.h{background:#2B4C8C;width:60%;height:16px;margin-bottom:10px}
+.tag{position:absolute;font-size:28px;font-weight:800;background:var(--green);border:4px solid var(--ink);border-radius:10px;padding:4px 14px;white-space:nowrap}
+.fmt{position:absolute;width:150px;height:92px;border:5px solid var(--ink);border-radius:16px;font-size:38px;font-weight:800;display:flex;align-items:center;justify-content:center;background:var(--pink-tint)}
+
+/* pílulas */
+.pill{position:absolute;left:50%;display:flex;align-items:center;gap:26px;font-size:74px;font-weight:700;padding:26px 54px;border-radius:999px;border:5px solid var(--ink);white-space:nowrap}
+.pill i{width:28px;height:28px;border-radius:50%}
+.pill.g{background:var(--green-tint)}.pill.g i{background:var(--green-text)}
+.pill.p{background:var(--pink-tint)}.pill.p i{background:var(--pink-text)}
+
+/* frase */
+#f-wrap{left:0;right:0;top:230px;text-align:center}
+.f-line{display:block;font-size:200px;white-space:nowrap}
+
+/* final */
+#end{background-color:var(--green);background-image:var(--grain)}
+#e-logo{left:660px;top:150px;width:600px;height:450px}
+#e-word{left:0;right:0;top:600px;text-align:center;font-size:190px}
+#e-url{left:50%;top:850px;font-size:58px;font-weight:800;background:var(--paper);border:5px solid var(--ink);border-radius:999px;padding:18px 54px;white-space:nowrap}
+#e-giant{left:-40px;bottom:-530px;font-size:900px;color:var(--pink);mix-blend-mode:multiply;letter-spacing:-.02em;white-space:nowrap;line-height:.78}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <g id="lines"><rect x="17" y="22.5" width="17.5" height="6.5" rx="3.25"/><rect x="1" y="37.8" width="33.5" height="6.7" rx="3.35"/><rect x="13.7" y="53" width="20.8" height="6.7" rx="3.35"/></g>
+    <path id="docp" d="M44.3 .7H77L96.2 26V67a4 4 0 0 1-4 4H44.3a4 4 0 0 1-4-4V4.7a4 4 0 0 1 4-4z"/>
+    <g id="ef"><rect x="53.5" y="21.7" width="14.4" height="42" rx="3"/><rect x="53.5" y="21.7" width="28.2" height="11.3" rx="3"/><rect x="60" y="38.7" width="18.5" height="10.9" rx="3"/></g>
+    <symbol id="logo" viewBox="-2 -2 108 82">
+      <g fill="#FF4FA3"><use href="#lines" transform="translate(1.2 1.6)"/><use href="#docp" transform="translate(5.5 5.5)"/></g>
+      <g fill="#1D9E75"><use href="#lines"/><use href="#docp"/></g>
+      <path d="M77 .7V22a4 4 0 0 0 4 4H96.2Z" fill="#1D314B"/>
+      <use href="#ef" fill="#FF4FA3" transform="translate(2.4 2.4)"/><use href="#ef" fill="#F5F0E6"/>
+    </symbol>
+    <symbol id="logo-mono" viewBox="-2 -2 108 82">
+      <g fill="#FF4FA3"><use href="#lines" transform="translate(1.2 1.6)"/><use href="#docp" transform="translate(5.5 5.5)"/></g>
+      <g fill="#1F1D1A"><use href="#lines"/><use href="#docp"/></g>
+      <path d="M77 .7V22a4 4 0 0 0 4 4H96.2Z" fill="#1D314B"/>
+      <use href="#ef" fill="#FF4FA3" transform="translate(2.4 2.4)"/><use href="#ef" fill="#F5F0E6"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div id="stage">
+  <!-- 0–8 s: intro -->
+  <div class="scene" id="intro">
+    <div class="abs dots-g" id="i-dots"></div>
+    <div class="abs disc-p" id="i-disc"></div>
+    <svg class="abs" id="i-logo"><use href="#logo"/></svg>
+    <div class="abs cap riso" id="i-word">Fluva</div>
+    <div class="abs" id="i-sub">Editor de PDF e imagens</div>
+  </div>
+
+  <!-- 8–12 s: título -->
+  <div class="scene" id="title">
+    <div class="abs dots-g" id="t-dots"></div>
+    <div class="abs disc-p" id="t-disc"></div>
+    <div class="abs cap riso" id="t-wrap">
+      <span class="t-line">Editor de PDF</span>
+      <span class="t-line">e imagens</span>
+      <span class="t-line">online <span style="color:var(--green)">grátis</span></span>
+    </div>
+  </div>
+
+  <!-- 12–16 s: arrastar e soltar -->
+  <div class="scene" id="drop">
+    <div class="abs" id="d-zone"></div>
+    <div class="abs" id="d-idle">
+      <div class="abs" id="d-up"><svg viewBox="0 0 24 24" width="100" height="100" fill="none" stroke="#1F1D1A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v5h16v-5"/></svg></div>
+      <div class="abs" id="d-txt" style="width:1920px">Arraste seus arquivos aqui</div>
+      <div class="abs" id="d-sub" style="width:1920px">PDF · PNG · JPG</div>
+    </div>
+    <div class="abs" id="d-over"><i></i></div>
+    <div class="abs cap" id="d-drop">Solte para abrir</div>
+    <div class="abs doc" id="d-doc"><b></b><b style="width:70%"></b><span>PDF</span></div>
+  </div>
+
+  <!-- 16–32 s: ferramentas -->
+  <div class="scene" id="tools"></div>
+
+  <!-- 32–36 s: pílulas -->
+  <div class="scene" id="pills">
+    <div class="abs dots-p" style="left:-160px;top:-160px;width:560px;height:560px"></div>
+    <div class="abs dots-g" style="right:-140px;bottom:-180px;width:620px;height:620px"></div>
+    <div class="pill g" id="p1" style="top:200px"><i></i>Sem cadastro</div>
+    <div class="pill g" id="p2" style="top:440px"><i></i>Sem instalar nada</div>
+    <div class="pill p" id="p3" style="top:680px"><i></i>Nenhum arquivo sai do seu computador</div>
+  </div>
+
+  <!-- 36–40 s: frase -->
+  <div class="scene" id="phrase">
+    <div class="abs disc-p" id="f-disc" style="left:1560px;top:700px;width:520px;height:520px"></div>
+    <div class="abs dots-g" id="f-dots" style="left:-90px;top:-90px;width:460px;height:460px"></div>
+    <div class="abs cap riso" id="f-wrap">
+      <span class="f-line">De graça,</span>
+      <span class="f-line">sem sair do</span>
+      <span class="f-line" style="color:var(--green)">navegador.</span>
+    </div>
+  </div>
+
+  <!-- 40–45 s: final -->
+  <div class="scene" id="end">
+    <div class="abs cap" id="e-giant">Fluva</div>
+    <svg class="abs" id="e-logo"><use href="#logo-mono"/></svg>
+    <div class="abs cap riso" id="e-word">Fluva</div>
+    <div class="abs" id="e-url">fluva.cyberhat.com.br</div>
+  </div>
+
+  <div class="wipe p" id="w1"></div><div class="wipe g" id="w2"></div><div class="wipe p" id="w3"></div>
+  <div class="wipe g" id="w4"></div><div class="wipe p" id="w5"></div><div class="wipe g" id="w6"></div>
+</div>
+
+<script>
+const T = 45, anims = [];
+const OUT = 'cubic-bezier(.16,1,.3,1)', BACK = 'cubic-bezier(.34,1.56,.64,1)', IN = 'cubic-bezier(.7,0,.84,0)', IO = 'cubic-bezier(.65,0,.35,1)';
+
+/** Uma animação por propriedade, cobrindo os 45 s: frames = [[tempo, valor, easing?], ...] */
+function K(target, props) {
+  const els = typeof target === 'string' ? document.querySelectorAll(target) : [target];
+  els.forEach((el) => {
+    for (const [prop, frames] of Object.entries(props)) {
+      const fs = frames.slice();
+      if (fs[0][0] > 0) fs.unshift([0, fs[0][1]]);
+      if (fs[fs.length - 1][0] < T) fs.push([T, fs[fs.length - 1][1]]);
+      const kf = fs.map(([t, v, e]) => ({ [prop]: v, offset: Math.min(1, t / T), easing: e || 'linear' }));
+      const a = el.animate(kf, { duration: T * 1000, fill: 'both' });
+      a.pause();
+      anims.push(a);
+    }
+  });
+}
+const show = (sel, t0, t1 = T) => K(sel, { opacity: [...(t0 > 0 ? [[t0, 0]] : []), [t0, 1], ...(t1 < T ? [[t1, 1], [t1, 0]] : [])] });
+const pop = (sel, t, extra = '', d = 0.45) => K(sel, { transform: [[t, `${extra} scale(0)`, BACK], [t + d, `${extra} scale(1)`]] });
+const rise = (sel, t, dy = 90, d = 0.55) => K(sel, { transform: [[t, `translateY(${dy}px)`, OUT], [t + d, 'translateY(0px)']], opacity: [[t, 0, OUT], [t + 0.2, 1]] });
+/** Carimbo: cai grande e assenta, com um tranco no palco. */
+function stamp(sel, t) {
+  K(sel, {
+    transform: [[t - 0.18, 'scale(2.6) rotate(-9deg)', IN], [t, 'scale(.94) rotate(0deg)', OUT], [t + 0.12, 'scale(1.05) rotate(0deg)', OUT], [t + 0.3, 'scale(1) rotate(0deg)']],
+    opacity: [[t - 0.18, 0], [t - 0.1, 1]],
+  });
+  shake(t);
+}
+/* Os trancos do palco são reunidos numa animação só (uma por propriedade). */
+const shakes = [];
+const shake = (t) => shakes.push([t, '0px 0px'], [t + 0.04, '-10px 8px'], [t + 0.09, '8px -6px'], [t + 0.15, '-4px 3px'], [t + 0.22, '0px 0px']);
+function wipe(sel, t) { K(sel, { transform: [[t - 0.34, 'translateX(-130%)', IO], [t + 0.34, 'translateX(130%)']] }); }
+
+/* ------------------------------------------------------------ 0–8 intro */
+show('#intro', 0, 8);
+K('#i-dots', { transform: [[0.3, 'scale(0)', OUT], [1.3, 'scale(1)'], [4, 'scale(1) translateX(0px)', IO], [4.7, 'scale(1) translateX(-330px)']] });
+K('#i-disc', { transform: [[1.0, 'scale(0)', OUT], [1.9, 'scale(1)'], [4, 'scale(1) translateX(0px)', IO], [4.7, 'scale(1) translateX(-330px)'], [7.25, 'scale(1) translateX(-330px)', OUT], [7.3, 'scale(1.08) translateX(-330px)'], [7.5, 'scale(1) translateX(-330px)', OUT], [7.55, 'scale(1.08) translateX(-330px)'], [7.75, 'scale(1) translateX(-330px)', OUT], [7.8, 'scale(1.12) translateX(-330px)']] });
+K('#i-logo', {
+  transform: [[1.82, 'scale(2.6) rotate(-9deg)', IN], [2, 'scale(.94) rotate(0deg)', OUT], [2.12, 'scale(1.05)', OUT], [2.3, 'scale(1)'], [4, 'translateX(0px) scale(1)', IO], [4.7, 'translateX(-430px) scale(.62)']],
+  opacity: [[1.82, 0], [1.9, 1]],
+});
+shake(2);
+/* "Fluva" sai como uma folha da impressora: revelado da esquerda para a direita */
+K('#i-word', { clipPath: [[4.2, 'inset(-20% 100% -20% 0)', OUT], [5.2, 'inset(-20% -5% -20% 0)']], opacity: [[4.2, 0], [4.21, 1]] });
+rise('#i-sub', 6, 60);
+
+/* ------------------------------------------------------------ 8–12 título */
+wipe('#w1', 8);
+show('#title', 8, 12);
+document.querySelectorAll('.t-line').forEach((el, i) => rise(el, 8 + i * 0.5, 130, 0.5));
+pop('#t-dots', 9.5);
+pop('#t-disc', 10);
+K('#t-wrap', { textShadow: [[8, '0px 0px 0 #FF4FA3'], [9.5, '0px 0px 0 #FF4FA3', OUT], [9.9, '9px 8px 0 #FF4FA3']], transform: [[10.5, 'scale(1)', IO], [12, 'scale(1.04)']] });
+K('#t-wrap', { transformOrigin: [[0, 'left center']] });
+
+/* ------------------------------------------------------------ 12–16 arrastar */
+wipe('#w2', 12);
+show('#drop', 12, 16);
+K('#d-zone', { transform: [[12, 'scale(.9)', OUT], [12.6, 'scale(1)']], opacity: [[14, 1], [14, 0]] });
+K('#d-idle', { opacity: [[14, 1], [14, 0]] });
+rise('#d-txt', 12.2, 50);
+rise('#d-sub', 12.4, 50);
+K('#d-up', { transform: [[12.1, 'scale(0)', BACK], [12.6, 'scale(1)']] });
+/* o arquivo entra voando por cima à direita e cai no meio na batida de 14 s */
+K('#d-doc', {
+  transform: [[12.9, 'translate(900px,-520px) rotate(34deg)', OUT], [13.6, 'translate(210px,-60px) rotate(14deg)', IN], [14, 'translate(0px,120px) rotate(8deg) scale(1.02)', OUT], [14.12, 'translate(60px,110px) rotate(8deg) scale(1.1)', OUT], [14.3, 'translate(440px,10px) rotate(8deg) scale(1)']],
+  opacity: [[12.9, 0], [12.95, 1]],
+});
+show('#d-over', 14, 16);
+K('#d-over', { transform: [[14, 'scale(1.03)', OUT], [14.35, 'scale(1)']] });
+K('#d-drop', { opacity: [[14, 0], [14.02, 1]], transform: [[14, 'scale(.7)', BACK], [14.4, 'scale(1)']] });
+
+/* ------------------------------------------------------------ 16–32 ferramentas */
+wipe('#w3', 16);
+wipe('#w4', 24);
+show('#tools', 16, 32);
+const LINES = '<b class="h"></b><b></b><b></b><b style="width:72%"></b><b style="margin-top:14px"></b><b></b><b style="width:55%"></b>';
+const TOOLS = [
+  { name: 'Editar texto e imagens', tone: 'g', art: `<div class="pg">${LINES}</div><div class="abs" id="a1-hl" style="left:226px;top:292px;width:300px;height:38px;background:#BFE3D4;outline:4px solid var(--green);outline-offset:4px;transform-origin:left"></div><div class="abs" id="a1-car" style="left:530px;top:290px;width:4px;height:42px;background:var(--ink)"></div><div class="tag" id="a1-tag" style="left:220px;top:226px">Editando texto</div>`,
+    run(t) {
+      K('#a1-hl', { transform: [[t + 0.45, 'scaleX(0)', OUT], [t + 0.75, 'scaleX(.55)'], [t + 1.0, 'scaleX(.55)', OUT], [t + 1.4, 'scaleX(1)']] });
+      K('#a1-car', { transform: [[t + 0.45, 'translateX(-300px)', OUT], [t + 0.75, 'translateX(-135px)'], [t + 1.0, 'translateX(-135px)', OUT], [t + 1.4, 'translateX(0px)']], opacity: [[t + 0.45, 0], [t + 0.46, 1]] });
+      pop('#a1-tag', t + 0.5);
+    } },
+  { name: 'Juntar PDFs', tone: 'p', art: `<div class="pg" id="a2-a">${LINES}</div><div class="pg" id="a2-b">${LINES}</div>`,
+    run(t) {
+      K('#a2-a', { transform: [[t, 'translateX(-200px) rotate(-8deg)'], [t + 0.5, 'translateX(-200px) rotate(-8deg)', IO], [t + 1.0, 'translate(-16px,-14px) rotate(-3deg)']] });
+      K('#a2-b', { transform: [[t, 'translateX(200px) rotate(8deg)'], [t + 0.5, 'translateX(200px) rotate(8deg)', IO], [t + 1.0, 'translate(16px,14px) rotate(2deg)']] });
+    } },
+  { name: 'Dividir PDF', tone: 'g', art: `<div class="pg" id="a3-a" style="height:245px;border-bottom-width:0;border-radius:12px 12px 0 0;overflow:hidden">${LINES}</div><div class="pg" id="a3-b" style="top:380px;height:245px;border-top-width:0;border-radius:0 0 12px 12px;padding-top:20px"><b></b><b></b><b style="width:60%"></b></div><div class="abs" id="a3-cut" style="left:120px;top:377px;width:520px;border-top:6px dashed var(--ink);transform-origin:left"></div>`,
+    run(t) {
+      K('#a3-cut', { transform: [[t + 0.3, 'scaleX(0)', OUT], [t + 0.75, 'scaleX(1)']], opacity: [[t + 1.0, 1], [t + 1.15, 0]] });
+      K('#a3-a', { transform: [[t + 1.0, 'translate(0px,0px) rotate(0deg)', OUT], [t + 1.5, 'translate(-60px,-50px) rotate(-5deg)']], borderBottomWidth: [[t + 1.0, '0px'], [t + 1.0, '5px']] });
+      K('#a3-b', { transform: [[t + 1.0, 'translate(0px,0px) rotate(0deg)', OUT], [t + 1.5, 'translate(60px,50px) rotate(4deg)']], borderTopWidth: [[t + 1.0, '0px'], [t + 1.0, '5px']] });
+    } },
+  { name: 'Comprimir', tone: 'p', art: `<div class="pg" id="a4-pg">${LINES}</div>${[[110, 60, 'M4 4l14 14M18 6v12H6'], [600, 60, 'M20 4L6 18M6 6v12h12'], [110, 640, 'M4 20L18 6M18 18V6H6'], [600, 640, 'M20 20L6 6M6 18V6h12']].map(([x, y, d], i) => `<svg class="abs a4-arrow" data-i="${i}" style="left:${x}px;top:${y}px" viewBox="0 0 24 24" width="70" height="70" fill="none" stroke="#1F1D1A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`).join('')}`,
+    run(t) {
+      K('#a4-pg', { transform: [[t, 'scale(1.12)'], [t + 0.5, 'scale(1.12)', IO], [t + 1.1, 'scale(.66)']] });
+      document.querySelectorAll('.a4-arrow').forEach((el) => {
+        const i = +el.dataset.i, sx = i % 2 ? -1 : 1, sy = i < 2 ? 1 : -1;
+        K(el, { transform: [[t, 'translate(0px,0px)'], [t + 0.5, 'translate(0px,0px)', IO], [t + 1.1, `translate(${sx * 100}px,${sy * 110}px)`]] });
+      });
+    } },
+  { name: 'Girar páginas', tone: 'p', art: `<div class="pg" id="a5-pg">${LINES}</div>`,
+    run(t) { K('#a5-pg', { transform: [[t, 'rotate(0deg)'], [t + 0.5, 'rotate(0deg)', BACK], [t + 1.1, 'rotate(90deg)']] }); } },
+  { name: "Marca d'água", tone: 'g', art: `<div class="pg">${LINES}</div><div class="abs cap" id="a6-wm" style="left:180px;top:345px;width:400px;text-align:center;font-size:68px;color:var(--pink);mix-blend-mode:multiply">AMOSTRA</div>`,
+    run(t) { K('#a6-wm', { transform: [[t + 0.5, 'rotate(-28deg) scale(2)', OUT], [t + 0.9, 'rotate(-28deg) scale(1)']], opacity: [[t + 0.5, 0, OUT], [t + 0.8, 0.85]] }); } },
+  { name: 'Converter formatos', tone: 'p', art: `<div class="pg" id="a7-pg" style="left:70px">${LINES}</div><div class="fmt" id="a7-0" style="left:185px;top:580px;background:var(--green)">PDF</div><div class="fmt" id="a7-1" style="left:540px;top:190px">PNG</div><div class="fmt" id="a7-2" style="left:540px;top:334px">JPG</div><div class="fmt" id="a7-3" style="left:540px;top:478px;background:#fff">DOCX</div>`,
+    run(t) { pop('#a7-0', t + 0.2); pop('#a7-1', t + 0.5); pop('#a7-2', t + 0.75); pop('#a7-3', t + 1.0); } },
+  { name: 'Assinatura digital', sub: 'ICP-Brasil · PAdES', tone: 'g', art: `<div class="pg">${LINES}</div><svg class="abs" style="left:230px;top:430px" width="300" height="130" viewBox="0 0 300 130" fill="none" stroke="#1D314B" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path id="a8-sig" pathLength="100" stroke-dasharray="100" d="M10 90c30-50 55-95 75-80s-30 95-5 95 35-65 60-65 5 55 35 50 40-20 60-20h50"/></svg><div class="abs" id="a8-ok" style="left:500px;top:90px;width:150px;height:150px;border-radius:50%;background:var(--green);border:5px solid var(--ink);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="84" height="84" fill="none" stroke="#1F1D1A" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></div>`,
+    run(t) { K('#a8-sig', { strokeDashoffset: [[t + 0.35, '100', IO], [t + 1.2, '0']] }); pop('#a8-ok', t + 1.25); } },
+];
+const toolsEl = document.getElementById('tools');
+TOOLS.forEach((tool, i) => {
+  const t0 = 16 + i * 2, t1 = t0 + 2;
+  const el = document.createElement('div');
+  el.className = 'tool';
+  el.innerHTML = `<div class="num">${String(i + 1).padStart(2, '0')} / 08</div><div class="name cap riso">${tool.name}</div>${tool.sub ? `<div class="sub">${tool.sub}</div>` : ''}<div class="art"><div class="bg ${tool.tone === 'g' ? 'dots-g' : 'dots-p'}"></div>${tool.art}</div>`;
+  toolsEl.appendChild(el);
+  show(el, t0, t1);
+  K(el.querySelector('.name'), { transform: [[t0, 'translateY(110px)', OUT], [t0 + 0.4, 'translateY(0px)'], [t1 - 0.18, 'translateY(0px)', IN], [t1, 'translateY(-70px)']], opacity: [[t0, 0, OUT], [t0 + 0.18, 1], [t1 - 0.18, 1], [t1, 0]] });
+  K(el.querySelector('.num'), { opacity: [[t0, 0], [t0 + 0.25, 1]] });
+  if (tool.sub) rise(el.querySelector('.sub'), t0 + 0.9, 40);
+  K(el.querySelector('.art'), { transform: [[t0, 'scale(.82) rotate(-4deg)', BACK], [t0 + 0.45, 'scale(1) rotate(0deg)']] });
+  tool.run(t0);
+});
+
+/* ------------------------------------------------------------ 32–36 pílulas */
+wipe('#w5', 32);
+show('#pills', 32, 36);
+['#p1', '#p2', '#p3'].forEach((sel, i) => {
+  const t = 32 + i, rot = [-3, 2, -1.5][i];
+  K(sel, { transform: [[t, `translateX(-50%) rotate(${rot}deg) scale(0)`, BACK], [t + 0.4, `translateX(-50%) rotate(${rot}deg) scale(1)`], [35, `translateX(-50%) rotate(${rot}deg) scale(1)`, OUT], [35.08, `translateX(-50%) rotate(${rot}deg) scale(1.06)`, OUT], [35.4, `translateX(-50%) rotate(${rot}deg) scale(1)`]] });
+});
+
+/* ------------------------------------------------------------ 36–40 frase */
+wipe('#w6', 36);
+show('#phrase', 36, 40);
+document.querySelectorAll('.f-line').forEach((el, i) => rise(el, 36 + i * 0.5, 130, 0.5));
+pop('#f-dots', 37.5);
+pop('#f-disc', 38);
+K('#f-wrap', { transform: [[38, 'scale(1)', IN], [40, 'scale(1.12)']] });
+
+/* ------------------------------------------------------------ 40–45 final */
+show('#end', 40);
+stamp('#e-logo', 40);
+K('#e-giant', { transform: [[40, 'translateY(420px)', OUT], [41.2, 'translateY(0px)']] });
+rise('#e-word', 40.5, 80);
+K('#e-url', { transform: [[41, 'translateX(-50%) scale(0)', BACK], [41.45, 'translateX(-50%) scale(1)']] });
+
+K('#stage', { translate: shakes.sort((a, b) => a[0] - b[0]) });
+
+window.seek = (t) => anims.forEach((a) => (a.currentTime = Math.min(T, Math.max(0, t)) * 1000));
+window.ready = document.fonts.ready.then(() => { seek(0); return true; });
+
+/* Pré-visualização em tempo real: ?play (e ?play&t=16 para começar em 16 s) */
+const q = new URLSearchParams(location.search);
+if (q.has('play')) {
+  const from = Number(q.get('t') || 0), start = performance.now();
+  const s = Math.min(innerWidth / 1920, innerHeight / 1080);
+  Object.assign(document.documentElement.style, { transform: `scale(${s})`, transformOrigin: '0 0' });
+  (function loop() { seek(from + (performance.now() - start) / 1000); requestAnimationFrame(loop); })();
+}
+</script>
+</body>
+</html>
