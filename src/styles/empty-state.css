@@ -154,12 +154,10 @@
 
 /* ---------------------------------------------------------------- hero */
 
-/* Primeira tela: cabeçalho + título + caixa de envio, sempre inteiros sem rolar. */
+/* Primeira tela: cabeçalho + título + caixa de envio, compactos, sem rolar. */
 .home-fold {
-  min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding-bottom: 36px;
 }
 
 /* .home é uma coluna flex com altura fixa: sem isto as seções (e o rodapé,
@@ -228,7 +226,6 @@
 /* ------------------------------------------------------------ dropzone */
 
 .home-drop-wrap {
-  flex: 1;
   padding: 0 72px;
   display: flex;
   flex-direction: column;
@@ -237,17 +234,16 @@
 
 .dropzone {
   position: relative;
-  flex: 1;
-  min-height: 250px;
+  min-height: 236px;
   border: 2.5px dashed var(--graphite);
   border-radius: 24px;
   background: var(--paper-raised);
-  padding: 32px 40px;
+  padding: 26px 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 8px;
   text-align: center;
   cursor: pointer;
   transition: background .14s ease-out;
@@ -267,35 +263,43 @@
 }
 
 .dropzone-icon {
-  width: 76px;
-  height: 76px;
+  width: 54px;
+  height: 54px;
   border-radius: 50%;
   background: var(--ink-green);
   color: var(--graphite);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .dropzone-title {
-  font-size: 25px;
+  font-size: 21px;
   font-weight: 700;
   line-height: 1.3;
 }
 
 .dropzone-title-sm {
-  font-size: 20px;
+  font-size: 19px;
   margin-top: 8px;
 }
 
 .dropzone-sub {
-  font-size: 17px;
+  font-size: 15px;
   color: var(--graphite-muted);
 }
 
 .dropzone-btn {
-  margin-top: 10px;
+  margin-top: 8px;
+  min-height: 46px;
+  font-size: 15px;
+  padding: 0 22px;
+}
+
+.dropzone-icon svg {
+  width: 26px;
+  height: 26px;
 }
 
 .dropzone-over {
@@ -323,10 +327,10 @@
 
 .dropzone-over-card {
   position: absolute;
-  right: 150px;
-  top: 44px;
-  width: 118px;
-  height: 150px;
+  right: 110px;
+  top: 28px;
+  width: 92px;
+  height: 118px;
   background: #FFFFFF;
   border: 2px solid var(--graphite);
   border-radius: 6px;
@@ -357,7 +361,7 @@
 }
 
 .dropzone-over-title {
-  font-size: 68px;
+  font-size: 60px;
   line-height: 1;
   pointer-events: none;
 }
@@ -462,7 +466,7 @@
 /* ---------------------------------------------------------- ferramentas */
 
 .home-tools {
-  padding: 96px 72px 104px;
+  padding: 72px 72px 96px;
   display: flex;
   flex-direction: column;
   gap: 40px;
@@ -686,8 +690,6 @@
   .site-nav { display: none; }
   .site-menu { display: block; }
 
-  .home-fold { padding-bottom: 20px; }
-
   .home-hero {
     padding: 0 20px 18px;
   }
@@ -704,27 +706,27 @@
   .home-drop-wrap { padding: 0 20px; }
 
   .dropzone {
-    min-height: 240px;
+    min-height: 0;
     border-radius: 20px;
-    padding: 28px 20px;
-    gap: 12px;
+    padding: 22px 18px;
+    gap: 8px;
   }
 
   .dropzone-problem { padding: 20px 16px; }
-  .dropzone-icon { width: 60px; height: 60px; margin-bottom: 0; }
-  .dropzone-icon svg { width: 28px; height: 28px; }
-  .dropzone-title { font-size: 19px; }
+  .dropzone-icon { width: 48px; height: 48px; margin-bottom: 2px; }
+  .dropzone-icon svg { width: 24px; height: 24px; }
+  .dropzone-title { font-size: 18px; }
   .dropzone-title-sm { font-size: 18px; }
-  .dropzone-sub { font-size: 15px; }
+  .dropzone-sub { font-size: 14px; }
 
   .dropzone-btn {
     width: 100%;
-    min-height: 52px;
-    font-size: 17px;
+    min-height: 48px;
+    font-size: 16px;
     margin-top: 6px;
   }
 
-  .dropzone-over { min-height: 260px; }
+  .dropzone-over { min-height: 200px; }
   .dropzone-over-card { right: 16px; top: 16px; width: 70px; height: 90px; padding: 8px; }
   .dropzone-over-title { font-size: 42px; }
 
