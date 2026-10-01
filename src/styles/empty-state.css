@@ -19,7 +19,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 28px 72px;
+  padding: 22px 72px;
   position: relative;
   z-index: 20;
 }
@@ -154,89 +154,57 @@
 
 /* ---------------------------------------------------------------- hero */
 
-.home-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-  gap: 40px;
-  align-items: center;
-  padding: 40px 72px 56px;
-  position: relative;
-}
-
-.home-hero-copy {
+/* Primeira tela: cabeçalho + título + caixa de envio, sempre inteiros sem rolar. */
+.home-fold {
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  padding-bottom: 36px;
+}
+
+/* .home é uma coluna flex com altura fixa: sem isto as seções (e o rodapé,
+   que tem overflow: hidden) seriam espremidas até sumir em vez de rolar. */
+.home > * {
+  flex-shrink: 0;
+}
+
+.home-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 4px 72px 24px;
   position: relative;
 }
 
 .home-title {
-  font-size: 76px;
-  line-height: 1.02;
+  font-size: 50px;
+  line-height: 1.06;
   letter-spacing: -.01em;
   text-wrap: balance;
+  max-width: 900px;
 }
 
 .home-title-accent {
   color: var(--ink-green);
 }
 
-.home-subtitle {
-  margin: 0;
-  font-size: 21px;
-  font-weight: 500;
-  line-height: 1.5;
-  color: var(--graphite-muted);
-  max-width: 600px;
-  text-wrap: pretty;
-}
-
-.home-badges {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
-  padding: 8px 14px;
-  border-radius: 999px;
-}
-
-.pill-green { background: var(--ink-green-tint); }
-.pill-pink { background: var(--ink-pink-tint); }
-
-.pill-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.pill-green .pill-dot { background: var(--ink-green-text); }
-.pill-pink .pill-dot { background: var(--ink-pink-text); }
-
 .home-art {
   position: relative;
-  width: 460px;
-  max-width: 100%;
-  height: 400px;
-  justify-self: end;
+  width: 210px;
+  height: 150px;
+  flex-shrink: 0;
 }
 
 .home-art-dots {
   position: absolute;
   left: 0;
-  top: 10px;
-  width: 310px;
-  height: 310px;
+  top: 0;
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
-  background-image: radial-gradient(circle, var(--ink-green) 2.4px, transparent 2.9px);
-  background-size: 9px 9px;
+  background-image: radial-gradient(circle, var(--ink-green) 1.8px, transparent 2.2px);
+  background-size: 7px 7px;
   mix-blend-mode: multiply;
 }
 
@@ -244,8 +212,8 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  width: 270px;
-  height: 270px;
+  width: 110px;
+  height: 110px;
   border-radius: 50%;
   background: var(--ink-pink);
   mix-blend-mode: multiply;
@@ -253,17 +221,14 @@
 
 .home-art-logo {
   position: absolute;
-  left: 90px;
-  top: 80px;
-}
-
-.home-art-mobile {
-  display: none;
+  left: 38px;
+  top: 26px;
 }
 
 /* ------------------------------------------------------------ dropzone */
 
 .home-drop-wrap {
+  flex: 1;
   padding: 0 72px;
   display: flex;
   flex-direction: column;
@@ -272,16 +237,17 @@
 
 .dropzone {
   position: relative;
-  min-height: 340px;
+  flex: 1;
+  min-height: 250px;
   border: 2.5px dashed var(--graphite);
   border-radius: 24px;
   background: var(--paper-raised);
-  padding: 52px 40px;
+  padding: 32px 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 14px;
   text-align: center;
   cursor: pointer;
   transition: background .14s ease-out;
@@ -394,16 +360,6 @@
   font-size: 68px;
   line-height: 1;
   pointer-events: none;
-}
-
-.home-privacy {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-size: 15px;
-  color: var(--graphite-muted);
-  text-align: center;
 }
 
 /* --------------------------------------------------------------- fila */
@@ -713,8 +669,7 @@
 /* ------------------------------------------------------------ tablet */
 
 @media (max-width: 1100px) {
-  .home-title { font-size: 60px; }
-  .home-art { transform: scale(.8); transform-origin: right center; }
+  .home-title { font-size: 42px; }
   .tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .site-footer-giant { font-size: 240px; margin-bottom: -50px; }
 }
@@ -731,46 +686,25 @@
   .site-nav { display: none; }
   .site-menu { display: block; }
 
+  .home-fold { padding-bottom: 20px; }
+
   .home-hero {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 12px 20px 28px;
-    gap: 18px;
+    padding: 0 20px 18px;
   }
 
-  .home-hero-copy { gap: 18px; }
   .home-art { display: none; }
 
-  .home-art-mobile {
-    display: block;
-    position: absolute;
-    right: -50px;
-    top: -10px;
-    width: 170px;
-    height: 170px;
-    border-radius: 50%;
-    background-image: radial-gradient(circle, var(--ink-pink) 2px, transparent 2.5px);
-    background-size: 8px 8px;
-    mix-blend-mode: multiply;
-    opacity: .9;
-    pointer-events: none;
-  }
-
   .home-title {
-    font-size: 42px;
-    line-height: 1.04;
+    font-size: 30px;
+    line-height: 1.08;
   }
 
-  .home-title .riso-shadow { transform: translate(3px, 2px) !important; }
-
-  .home-subtitle { font-size: 17px; }
-  .home-badges { gap: 8px; }
-  .pill { font-size: 14px; padding: 6px 12px; }
-  .pill-dot { display: none; }
+  .home-title .riso-shadow { transform: translate(2px, 2px) !important; }
 
   .home-drop-wrap { padding: 0 20px; }
 
   .dropzone {
-    min-height: 0;
+    min-height: 240px;
     border-radius: 20px;
     padding: 28px 20px;
     gap: 12px;
@@ -798,7 +732,6 @@
   .alert-title { font-size: 16px; }
   .alert-text { font-size: 14.5px; }
 
-  .home-privacy { font-size: 14px; align-items: flex-start; text-align: left; }
 
   .queue-actions { flex-direction: column; }
   .queue-actions > .btn { min-height: 52px; }

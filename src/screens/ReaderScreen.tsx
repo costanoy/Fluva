@@ -102,7 +102,7 @@ export function ReaderScreen() {
           className="reader-page-input"
           inputMode="numeric"
           aria-label={t('reader.pageInputAria')}
-          value={pageDraft ?? String(loaded ? pageIndex + 1 : '–')}
+          value={pageDraft ?? String(loaded ? pageIndex + 1 : '-')}
           disabled={!loaded}
           onFocus={(e) => {
             setPageDraft(String(pageIndex + 1));
@@ -117,7 +117,7 @@ export function ReaderScreen() {
             if (e.key === 'Enter') e.currentTarget.blur();
           }}
         />
-        {t('reader.of', { total: total || '–' })}
+        {t('reader.of', { total: total || '-' })}
       </div>
       <button aria-label={t('reader.nextPage')} disabled={!loaded || pageIndex >= total - 1} onClick={() => goToPage(pageIndex + 1)}>
         <Icon name="chevronRight" size={18} strokeWidth={2.4} />

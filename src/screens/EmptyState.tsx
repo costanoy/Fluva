@@ -129,40 +129,25 @@ export function EmptyState() {
     void actions.pickFiles();
   };
 
-  const [titleFirst, ...titleRest] = t('home.pageTitle').split(' ');
+  // "Fluva: editor de PDF…": o nome da marca vai em verde, o resto em grafite.
+  const [brand, ...tagline] = t('home.pageTitle').split(':');
 
   return (
     <div className="home grain">
+      {/* Cabeçalho, título e a caixa de envio cabem juntos na primeira tela,
+          sem rolar: a caixa ocupa a altura que sobrar. */}
+      <div className="home-fold">
       <SiteHeader showToolsLink />
 
       <section className="home-hero">
-        <div className="home-hero-copy">
-          <RisoHeading as="h1" className="home-title" shadowText={t('home.pageTitle')} offset={[4, 3]}>
-            <span className="home-title-accent">{titleFirst}</span> {titleRest.join(' ')}
-          </RisoHeading>
-          <p className="home-subtitle">{t('home.heroSubtitle')}</p>
-          <div className="home-badges">
-            <span className="pill pill-green">
-              <span className="pill-dot" />
-              {t('home.badgeNoSignup')}
-            </span>
-            <span className="pill pill-green only-desktop">
-              <span className="pill-dot" />
-              {t('home.badgeNoInstall')}
-            </span>
-            <span className="pill pill-pink">
-              <span className="pill-dot" />
-              <span className="only-desktop">{t('home.badgeLocal')}</span>
-              <span className="only-mobile">{t('home.badgeLocalMobile')}</span>
-            </span>
-          </div>
-        </div>
+        <RisoHeading as="h1" className="home-title" shadowText={t('home.pageTitle')} offset={[3, 2]}>
+          <span className="home-title-accent">{brand}</span>:{tagline.join(':')}
+        </RisoHeading>
         <div className="home-art" aria-hidden="true">
           <div className="home-art-dots" />
           <div className="home-art-pink" />
-          <Logo width={300} className="home-art-logo" />
+          <Logo width={132} className="home-art-logo" />
         </div>
-        <div className="home-art-mobile" aria-hidden="true" />
       </section>
 
       <div className="home-drop-wrap">
@@ -284,10 +269,7 @@ export function EmptyState() {
           </div>
         )}
 
-        <div className="home-privacy">
-          <Icon name="lock" size={18} color="var(--ink-green-text)" />
-          {t('home.privacyNote')}
-        </div>
+      </div>
       </div>
 
       <section className="home-tools" id="ferramentas">
