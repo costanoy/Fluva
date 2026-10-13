@@ -10,7 +10,7 @@ import {
   type WatermarkConfig,
   type WorkPage,
 } from '../pdf/model';
-import { formatBytes, isAcceptedFile, loadFile, readImageSize, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
+import { formatBytes, isAcceptedFile, loadFile, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
 import { TEXT_BASELINE_RATIO, isCoveredRect } from '../pdf/geometry';
 import { canvasToBlob, rasterizePdf, releaseAll } from '../pdf/render';
 import type { CompressLevel, SplitResult } from '../pdf/ops';
@@ -303,9 +303,10 @@ export function useFluvaStore() {
       });
 
     const registerAsset = async (file: File): Promise<ImageAsset> => {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const mime = file.type || (/\.png$/i.test(file.name) ? 'image/png' : 'image/jpeg');
-      const { width, height } = await readImageSize(bytes, mime);
+      // Without its metadata (a photo's GPS position, phone, date) and upright.
+      const { prepareImage } = await import('../pdf/imagePrep');
+      const original = new Uint8Array(await file.arrayBuffer());
+      const { bytes, mime, width, height } = await prepareImage(original, file.type || (/\.png$/i.test(file.name) ? 'image/png' : 'image/jpeg'));
       return { id: newId('asset'), bytes, mime, width, height };
     };
 

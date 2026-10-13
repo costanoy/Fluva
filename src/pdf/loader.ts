@@ -1,6 +1,7 @@
 import { openWithPdfJs } from './pdfjs';
 import { newId, type ImageAsset, type SourceDoc, type WorkPage } from './model';
 import { t } from '../i18n/translations';
+import { prepareImage } from './imagePrep';
 
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
@@ -19,27 +20,6 @@ export function fileKind(file: File): 'pdf' | 'image' {
 export async function readFileBytes(file: File): Promise<Uint8Array> {
   const buf = await file.arrayBuffer();
   return new Uint8Array(buf);
-}
-
-export async function readImageSize(bytes: Uint8Array, mime: string): Promise<{ width: number; height: number }> {
-  const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: mime });
-  const url = URL.createObjectURL(blob);
-  try {
-    const bmp = await createImageBitmap(blob);
-    const size = { width: bmp.width, height: bmp.height };
-    bmp.close();
-    return size;
-  } catch {
-    // Fallback for browsers that fail createImageBitmap on some JPEGs.
-    return await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-      img.onerror = () => reject(new Error(t('loader.imageReadError')));
-      img.src = url;
-    });
-  } finally {
-    URL.revokeObjectURL(url);
-  }
 }
 
 export interface LoadedFile {
@@ -112,9 +92,9 @@ async function loadPdfFile(file: File, bytes: Uint8Array): Promise<LoadedFile> {
   return { source, pages };
 }
 
-async function loadImageFile(file: File, bytes: Uint8Array): Promise<LoadedFile> {
-  const mime = file.type || (/\.png$/i.test(file.name) ? 'image/png' : 'image/jpeg');
-  const { width, height } = await readImageSize(bytes, mime);
+async function loadImageFile(file: File, original: Uint8Array): Promise<LoadedFile> {
+  // Without its metadata (a photo's GPS position, phone, date) and upright.
+  const { bytes, mime, width, height } = await prepareImage(original, file.type || (/\.png$/i.test(file.name) ? 'image/png' : 'image/jpeg'));
 
   const sourceId = newId('src');
   const assetId = newId('asset');
