@@ -1,4 +1,19 @@
-import { degrees, PDFDocument, rgb, type PDFFont, type PDFPage, type PDFImage } from 'pdf-lib';
+import {
+  degrees,
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFObjectCopier,
+  PDFPage,
+  PDFPageLeaf,
+  PDFRef,
+  PDFStream,
+  rgb,
+  type PDFFont,
+  type PDFImage,
+  type PDFObject,
+} from 'pdf-lib';
 import type { CoverOverlay, DocumentState, ImageAsset, Overlay, WatermarkConfig, WorkPage } from './model';
 import { createFontSet, fontSupportsText } from './fonts';
 import { resolveOriginalFontBytes } from './textExtract';
@@ -32,6 +47,29 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport): Promis
   // Cache per source so each file is parsed once, and per asset so a repeated
   // image is embedded once.
   const sourceDocs = new Map<string, PDFDocument>();
+  // One copier per source: what a document shares between its pages — an
+  // embedded font, a logo, a form field shown on several pages, a link from
+  // one page to another — is copied once and stays shared. Copying page by
+  // page made a full copy of all that for every page (a 480 KB file came out
+  // at 5.7 MB) and dragged in hidden copies of every page linked to.
+  const copiers = new Map<string, { srcDoc: PDFDocument; copier: PDFObjectCopier }>();
+  const placedOnce = new Set<string>();
+  const copyPage = (sourceId: string, srcDoc: PDFDocument, index: number): PDFPage => {
+    let entry = copiers.get(sourceId);
+    if (!entry) {
+      entry = { srcDoc, copier: PDFObjectCopier.for(srcDoc.context, out.context) };
+      copiers.set(sourceId, entry);
+    }
+    // The same page used twice gets a copy of its own — the shared copier
+    // would hand back the very page already placed.
+    const key = `${sourceId}:${index}`;
+    const copier = placedOnce.has(key) ? PDFObjectCopier.for(srcDoc.context, out.context) : entry.copier;
+    placedOnce.add(key);
+    // Copied by reference: whatever points at this page (a link, a form
+    // widget) then lands on this very copy instead of making another.
+    const ref = copier.copy(srcDoc.getPage(index).ref) as PDFRef;
+    return out.addPage(PDFPage.of(out.context.lookup(ref) as PDFPageLeaf, ref, out));
+  };
   const embeddedImages = new Map<string, PDFImage>();
   // Cache per (page, pdf.js font key) so several runs sharing one original
   // font resource don't each re-parse that page's operator list.
@@ -95,8 +133,7 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport): Promis
     } else if (source && source.kind === 'pdf') {
       const srcDoc = await loadSource(source.id);
       if (!srcDoc) continue;
-      const [copied] = await out.copyPages(srcDoc, [page.sourceIndex]);
-      outPage = out.addPage(copied);
+      outPage = copyPage(source.id, srcDoc, page.sourceIndex);
       sourceRotation = normalizeRotation(source.pageRotations[page.sourceIndex] ?? 0);
       // The same box pdf.js displays (CropBox, defaulting to MediaBox), so
       // editor coordinates and output coordinates share one frame.
@@ -169,7 +206,131 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport): Promis
   }
 
   if (out.getPageCount() === 0) out.addPage();
+
+  const placed = new Set(out.getPages().map((p) => p.ref.tag));
+  for (const page of out.getPages()) dropLinksOutside(page, placed);
+  restoreForms(out, [...copiers.values()]);
+  // Pages copied only because something pointed at them, streams a text
+  // removal replaced, a field's widgets on pages left out: none of it is
+  // reachable from the document any more, all of it would still be written.
+  await out.flush();
+  dropUnreachable(out);
   return out.save();
+}
+
+/** Where a link annotation jumps to inside the document, if anywhere. */
+function linkTarget(annot: PDFDict): PDFObject | undefined {
+  const dest = annot.lookup(PDFName.of('Dest'));
+  if (dest) return dest;
+  const action = annot.lookup(PDFName.of('A'));
+  if (action instanceof PDFDict && action.get(PDFName.of('S')) === PDFName.of('GoTo')) return action.lookup(PDFName.of('D'));
+  return undefined;
+}
+
+/** Links to a page that isn't in this file are removed: they lead nowhere,
+ * and they would keep a hidden copy of that page inside it. */
+function dropLinksOutside(page: PDFPage, placed: Set<string>) {
+  const annots = page.node.Annots();
+  if (!annots) return;
+  const kept: PDFObject[] = [];
+  for (let i = 0; i < annots.size(); i++) {
+    const entry = annots.get(i);
+    const annot = page.doc.context.lookup(entry);
+    const target = annot instanceof PDFDict ? linkTarget(annot) : undefined;
+    const targetPage = target instanceof PDFArray ? target.get(0) : undefined;
+    if (targetPage instanceof PDFRef && !placed.has(targetPage.tag)) continue;
+    kept.push(entry);
+  }
+  if (kept.length !== annots.size()) page.node.set(PDFName.of('Annots'), page.doc.context.obj(kept));
+}
+
+/**
+ * Fillable fields live in the document's /AcroForm, not on the pages — only
+ * their widgets come along with a copied page, so every form came out as
+ * flat, dead boxes. This rebuilds it from the widgets actually present:
+ * each top-level field once, without the widgets left on pages that aren't
+ * in this file. Signature fields are not restored as fields: whatever they
+ * signed is not this document any more, and a viewer would only flag them
+ * as broken.
+ */
+function restoreForms(out: PDFDocument, sources: Array<{ srcDoc: PDFDocument; copier: PDFObjectCopier }>) {
+  const { context } = out;
+  const onPages = new Set<string>();
+  const roots: PDFRef[] = [];
+  const seen = new Set<string>();
+  for (const page of out.getPages()) {
+    const annots = page.node.Annots();
+    for (let i = 0; i < (annots?.size() ?? 0); i++) {
+      const entry = annots!.get(i);
+      if (!(entry instanceof PDFRef)) continue;
+      onPages.add(entry.tag);
+      const annot = context.lookup(entry);
+      if (!(annot instanceof PDFDict) || annot.get(PDFName.of('Subtype')) !== PDFName.of('Widget')) continue;
+      let root = entry;
+      let node: PDFDict = annot;
+      let type = node.get(PDFName.of('FT'));
+      for (let parent = node.get(PDFName.of('Parent')); parent instanceof PDFRef; parent = node.get(PDFName.of('Parent'))) {
+        const parentNode = context.lookup(parent);
+        if (!(parentNode instanceof PDFDict)) break;
+        root = parent;
+        node = parentNode;
+        type = type ?? node.get(PDFName.of('FT'));
+      }
+      if (type === PDFName.of('Sig') || !node.get(PDFName.of('T')) || seen.has(root.tag)) continue;
+      seen.add(root.tag);
+      roots.push(root);
+    }
+  }
+  if (!roots.length) return;
+
+  // A field shown on several pages keeps only the widgets that made it in.
+  const prune = (ref: PDFRef): boolean => {
+    const field = context.lookup(ref);
+    if (!(field instanceof PDFDict)) return false;
+    const kids = field.lookup(PDFName.of('Kids'));
+    if (!(kids instanceof PDFArray)) return onPages.has(ref.tag) || !field.get(PDFName.of('Subtype'));
+    const kept = kids.asArray().filter((kid): kid is PDFRef => kid instanceof PDFRef && prune(kid));
+    field.set(PDFName.of('Kids'), context.obj(kept));
+    return kept.length > 0;
+  };
+  const fields = roots.filter(prune);
+  if (!fields.length) return;
+
+  const acroForm = context.obj({ Fields: fields });
+  for (const { srcDoc, copier } of sources) {
+    const source = srcDoc.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
+    if (!source) continue;
+    // Default fonts and appearance settings, from the first form that has them.
+    for (const key of ['DR', 'DA', 'Q', 'NeedAppearances']) {
+      const value = source.get(PDFName.of(key));
+      if (value && !acroForm.has(PDFName.of(key))) acroForm.set(PDFName.of(key), copier.copy(value));
+    }
+  }
+  out.catalog.set(PDFName.of('AcroForm'), context.register(acroForm));
+}
+
+/** Removes every object nothing in the document points to any more. */
+function dropUnreachable(doc: PDFDocument) {
+  const { context } = doc;
+  const reachable = new Set<string>();
+  const stack: Array<PDFObject | undefined> = [context.trailerInfo.Root, context.trailerInfo.Info];
+  while (stack.length) {
+    const obj = stack.pop();
+    if (obj instanceof PDFRef) {
+      if (reachable.has(obj.tag)) continue;
+      reachable.add(obj.tag);
+      stack.push(context.lookup(obj));
+    } else if (obj instanceof PDFDict) {
+      for (const [, value] of obj.entries()) stack.push(value);
+    } else if (obj instanceof PDFArray) {
+      stack.push(...obj.asArray());
+    } else if (obj instanceof PDFStream) {
+      for (const [, value] of obj.dict.entries()) stack.push(value);
+    }
+  }
+  for (const [ref] of context.enumerateIndirectObjects()) {
+    if (!reachable.has(ref.tag)) context.delete(ref);
+  }
 }
 
 /** The box pdf.js displays: the CropBox clipped to the MediaBox, normalized

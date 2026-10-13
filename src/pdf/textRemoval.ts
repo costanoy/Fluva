@@ -1,4 +1,4 @@
-import { PDFArray, PDFDict, PDFName, PDFRawStream, PDFRef, PDFStream, decodePDFRawStream, type PDFContext, type PDFPage } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFName, PDFRawStream, PDFStream, decodePDFRawStream, type PDFContext, type PDFPage } from 'pdf-lib';
 import { pdfjsLib, type PDFPageProxy } from './pdfjs';
 import type { Rect } from './model';
 
@@ -643,21 +643,9 @@ export async function removeCoveredText(pdfPage: PDFPageProxy, outPage: PDFPage,
   const bytes = new Uint8Array(source.length);
   for (let i = 0; i < source.length; i++) bytes[i] = source.charCodeAt(i) & 255;
 
-  // pdf-lib writes every object it holds, referenced or not — the replaced
-  // stream would otherwise ride along in the file, original text and all.
-  // Each copied page owns fresh copies of its streams, so nothing else uses them.
-  const previous = outPage.node.get(PDFName.of('Contents'));
-  const stale: PDFRef[] = [];
-  if (previous instanceof PDFRef) stale.push(previous);
-  const resolved = previous instanceof PDFRef ? context.lookup(previous) : previous;
-  if (resolved instanceof PDFArray) {
-    for (let i = 0; i < resolved.size(); i++) {
-      const item = resolved.get(i);
-      if (item instanceof PDFRef) stale.push(item);
-    }
-  }
-
+  // The replaced stream, original text and all, is left for `buildPdf`'s
+  // final sweep of unreachable objects to drop — deleting it here would also
+  // break another page that happens to share it.
   outPage.node.set(PDFName.of('Contents'), context.register(context.flateStream(bytes)));
-  for (const ref of stale) context.delete(ref);
   return complete;
 }
