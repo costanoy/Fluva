@@ -9,12 +9,32 @@
   AddType application/manifest+json .webmanifest
 </IfModule>
 
-# Vite fingerprints filenames, so assets are safe to cache aggressively.
+# Vite fingerprints filenames, and pdf.js's runtime files live under a path
+# that carries its version, so assets are safe to cache aggressively.
 <IfModule mod_expires.c>
   ExpiresActive On
-  <FilesMatch "\.(js|mjs|css|woff2?)$">
+  <FilesMatch "\.(js|mjs|css|woff2?|wasm|bcmap|pfb|ttf)$">
     ExpiresDefault "access plus 1 year"
   </FilesMatch>
+</IfModule>
+
+# Security headers. Fluva runs entirely in the browser and talks to no server:
+# everything it loads comes from this site, except the Google Fonts stylesheet
+# and font files. The policy below holds it to exactly that, so even a bug that
+# let someone inject markup couldn't load or send anything elsewhere.
+# - 'wasm-unsafe-eval' lets pdf.js compile its image decoders (WebAssembly
+#   only; JavaScript eval stays blocked).
+# - style-src needs 'unsafe-inline' for React's style attributes.
+# - frame-ancestors / X-Frame-Options: no other site can frame the editor
+#   (clickjacking).
+<IfModule mod_headers.c>
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+  Header always set Strict-Transport-Security "max-age=31536000"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
 </IfModule>
 
 # The site also answers on www. — send it to the one canonical host so search
