@@ -85,6 +85,7 @@ export function CompressPanel() {
           <button
             key={level}
             className="segmented-btn"
+            aria-pressed={state.compressLevel === level}
             style={{
               background: state.compressLevel === level ? 'var(--color-accent)' : 'transparent',
               color: 'var(--graphite)',
@@ -170,6 +171,7 @@ export function WatermarkPanel() {
           <div className="segmented" style={{ marginTop: 4 }}>
             <button
               className="segmented-btn"
+              aria-pressed={wm.source.kind === 'text'}
               style={{
                 background: wm.source.kind === 'text' ? 'var(--color-accent)' : 'transparent',
                 color: 'var(--graphite)',
@@ -180,6 +182,7 @@ export function WatermarkPanel() {
             </button>
             <button
               className="segmented-btn"
+              aria-pressed={wm.source.kind === 'image'}
               style={{
                 background: wm.source.kind === 'image' ? 'var(--color-accent)' : 'transparent',
                 color: 'var(--graphite)',
@@ -218,6 +221,7 @@ export function WatermarkPanel() {
           <div className="segmented">
             <button
               className="segmented-btn"
+              aria-pressed={wm.allPages}
               style={{
                 background: wm.allPages ? 'var(--color-accent)' : 'transparent',
                 color: 'var(--graphite)',
@@ -228,6 +232,7 @@ export function WatermarkPanel() {
             </button>
             <button
               className="segmented-btn"
+              aria-pressed={!wm.allPages}
               style={{
                 background: !wm.allPages ? 'var(--color-accent)' : 'transparent',
                 color: 'var(--graphite)',

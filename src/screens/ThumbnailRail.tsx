@@ -107,6 +107,7 @@ function MergeSourceList() {
           <button
             key={source.id}
             className="merge-file-row"
+            aria-pressed={checked}
             style={{ background: checked ? 'var(--ink-green-tint)' : 'transparent' }}
             onClick={() => actions.toggleMergeSource(source.id)}
           >

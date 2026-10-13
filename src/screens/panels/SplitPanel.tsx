@@ -30,11 +30,11 @@ export function SplitPanel() {
       <h6 className="panel-title">{t('split.title')}</h6>
 
       <div className="segmented">
-        <button className="segmented-btn" style={segStyle(state.splitMode === 'range')} onClick={() => actions.setSplitMode('range')}>
+        <button className="segmented-btn" aria-pressed={state.splitMode === 'range'} style={segStyle(state.splitMode === 'range')} onClick={() => actions.setSplitMode('range')}>
           <Columns2 size={15} strokeWidth={2.75} />
           {t('split.range')}
         </button>
-        <button className="segmented-btn" style={segStyle(state.splitMode === 'pages')} onClick={() => actions.setSplitMode('pages')}>
+        <button className="segmented-btn" aria-pressed={state.splitMode === 'pages'} style={segStyle(state.splitMode === 'pages')} onClick={() => actions.setSplitMode('pages')}>
           <Files size={15} strokeWidth={2.75} />
           {t('split.pages')}
         </button>
@@ -51,10 +51,10 @@ function RangePanel({ state, actions }: { state: AppState; actions: FluvaActions
   return (
     <>
       <div className="panel-row" style={{ gap: 8 }}>
-        <button className="shape-type-btn" style={subModeStyle(state.splitRangeSubMode === 'auto')} onClick={() => actions.setSplitRangeSubMode('auto')}>
+        <button className="shape-type-btn" aria-pressed={state.splitRangeSubMode === 'auto'} style={subModeStyle(state.splitRangeSubMode === 'auto')} onClick={() => actions.setSplitRangeSubMode('auto')}>
           {t('split.autoInterval')}
         </button>
-        <button className="shape-type-btn" style={subModeStyle(state.splitRangeSubMode === 'custom')} onClick={() => actions.setSplitRangeSubMode('custom')}>
+        <button className="shape-type-btn" aria-pressed={state.splitRangeSubMode === 'custom'} style={subModeStyle(state.splitRangeSubMode === 'custom')} onClick={() => actions.setSplitRangeSubMode('custom')}>
           {t('split.chooseInterval')}
         </button>
       </div>

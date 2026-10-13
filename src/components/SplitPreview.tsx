@@ -108,6 +108,7 @@ export function SplitPreview() {
               type="button"
               className={`split-preview-item${selectable ? ' split-preview-item-selectable' : ''}`}
               disabled={!selectable}
+              aria-pressed={selectable ? selected : undefined}
               onClick={() => selectable && actions.toggleSplitSelectedPage(pageNumber)}
               style={{
                 // Fixed, independent of the label's own text length — a
