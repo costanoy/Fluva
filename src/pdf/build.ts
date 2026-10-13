@@ -1,15 +1,25 @@
 import { degrees, PDFDocument, rgb, type PDFFont, type PDFPage, type PDFImage } from 'pdf-lib';
-import type { DocumentState, ImageAsset, Overlay, WatermarkConfig, WorkPage } from './model';
+import type { CoverOverlay, DocumentState, ImageAsset, Overlay, WatermarkConfig, WorkPage } from './model';
 import { createFontSet, fontSupportsText, sanitizeForStandardFont } from './fonts';
 import { resolveOriginalFontBytes } from './textExtract';
+import { getPdfDoc } from './render';
+import { removeCoveredText } from './textRemoval';
 import { displayRectToRaw, displayToRaw, hexToRgb, normalizeRotation, TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT, type Quarter } from './geometry';
+
+/** What `buildPdf` could not fully honor, for the caller to tell the user. */
+export interface BuildReport {
+  /** Some replaced text could not be deleted from the content stream (an
+   * unusual font encoding, text inside a form XObject...) and is still
+   * findable in the file under its cover. */
+  replacedTextKept?: boolean;
+}
 
 /**
  * Assembles the real output PDF from the source files plus the recorded edits.
  * This is the single place where edits become bytes; the editor never mutates
  * the originals.
  */
-export async function buildPdf(doc: DocumentState): Promise<Uint8Array> {
+export async function buildPdf(doc: DocumentState, report?: BuildReport): Promise<Uint8Array> {
   const out = await PDFDocument.create();
   const fonts = createFontSet(out);
 
@@ -76,6 +86,24 @@ export async function buildPdf(doc: DocumentState): Promise<Uint8Array> {
       rawW = box.width;
       rawH = box.height;
       origin = { x: box.x, y: box.y };
+
+      // Replaced text has to leave the file, not just disappear under its
+      // cover — this must run before anything else is drawn on the page.
+      const covers = page.overlays.filter((o): o is CoverOverlay => o.kind === 'cover');
+      if (covers.length) {
+        let removed = false;
+        try {
+          const pdfPage = await (await getPdfDoc(source)).getPage(page.sourceIndex + 1);
+          try {
+            removed = await removeCoveredText(pdfPage, outPage, out.context, covers);
+          } finally {
+            pdfPage.cleanup();
+          }
+        } catch (err) {
+          console.warn('[Fluva] could not strip replaced text', err);
+        }
+        if (!removed && report) report.replacedTextKept = true;
+      }
     } else if (source && source.kind === 'image') {
       // An image page is a page sized to the image, with the image drawn to fill it.
       rawW = page.width;

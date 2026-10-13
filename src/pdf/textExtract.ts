@@ -275,37 +275,59 @@ export async function sampleRunColors(doc: DocumentState, page: WorkPage, bounds
   return boundsList.map((bounds) => sampleBounds(canvas, SAMPLE_SCALE, page.height, bounds));
 }
 
-/** Groups text runs into reading-order lines, used by the DOCX export. */
-export function groupIntoLines(items: TextItem[]): string[] {
+/** What line grouping needs from a piece of text — the page's own runs and
+ * the user's text boxes both provide it (displayed space, bottom-left origin;
+ * `y` is the bottom of the line box). */
+export interface LineItem {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  fontSize: number;
+  bold: boolean;
+  italic: boolean;
+}
+
+/** Groups text into reading-order lines (top to bottom, each left to right),
+ * used by the DOCX export. */
+export function groupIntoLines<T extends LineItem>(items: T[]): T[][] {
   if (!items.length) return [];
   const sorted = [...items].sort((p, q) => (Math.abs(q.y - p.y) > 3 ? q.y - p.y : p.x - q.x));
-  const lines: string[] = [];
-  let current: TextItem[] = [];
+  const lines: T[][] = [];
+  let current: T[] = [];
   let currentY = sorted[0].y;
 
   for (const item of sorted) {
     if (Math.abs(item.y - currentY) > Math.max(3, item.fontSize * 0.6)) {
-      if (current.length) lines.push(joinLine(current));
+      if (current.length) lines.push(current.sort((p, q) => p.x - q.x));
       current = [];
       currentY = item.y;
     }
     current.push(item);
   }
-  if (current.length) lines.push(joinLine(current));
-  return lines.filter((l) => l.trim().length > 0);
+  if (current.length) lines.push(current.sort((p, q) => p.x - q.x));
+  return lines.filter((line) => line.some((item) => item.text.trim()));
 }
 
-function joinLine(items: TextItem[]): string {
-  const sorted = [...items].sort((p, q) => p.x - q.x);
+/** A line as styled pieces of text, with the spaces that PDF text positioning
+ * implies but does not store reinstated. */
+export function lineRuns(line: LineItem[]): Array<{ text: string; bold: boolean; italic: boolean }> {
+  const runs: Array<{ text: string; bold: boolean; italic: boolean }> = [];
   let out = '';
   let prevEnd: number | null = null;
-  for (const item of sorted) {
-    // Reinstate the space that PDF text positioning implies but does not store.
-    if (prevEnd !== null && item.x - prevEnd > item.fontSize * 0.25 && !/\s$/.test(out)) out += ' ';
-    out += item.text;
+  for (const item of line) {
+    let piece = item.text.replace(/\s+/g, ' ');
+    if (prevEnd !== null && item.x - prevEnd > item.fontSize * 0.25 && !/\s$/.test(out) && !/^\s/.test(piece)) piece = ` ${piece}`;
+    if (!out || /\s$/.test(out)) piece = piece.trimStart();
     prevEnd = item.x + item.width;
+    if (!piece) continue;
+    out += piece;
+    const last = runs[runs.length - 1];
+    if (last && last.bold === item.bold && last.italic === item.italic) last.text += piece;
+    else runs.push({ text: piece, bold: item.bold, italic: item.italic });
   }
-  return out.replace(/\s+/g, ' ').trim();
+  if (runs.length) runs[runs.length - 1].text = runs[runs.length - 1].text.trimEnd();
+  return runs.filter((run) => run.text);
 }
 
 export interface PageImage {

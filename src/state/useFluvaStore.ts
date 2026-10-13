@@ -11,7 +11,7 @@ import {
   type WorkPage,
 } from '../pdf/model';
 import { formatBytes, isAcceptedFile, loadFile, readImageSize, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
-import { TEXT_BASELINE_RATIO } from '../pdf/geometry';
+import { TEXT_BASELINE_RATIO, isCoveredRect } from '../pdf/geometry';
 import { canvasToBlob, rasterizePdf, releaseAll } from '../pdf/render';
 import type { CompressLevel, SplitResult } from '../pdf/ops';
 import type { ExportFormat } from '../pdf/exporters';
@@ -788,7 +788,12 @@ export function useFluvaStore() {
           const perPage = await Promise.all(
             st.doc.pages.map(async (page) => {
               const items = await extractPageText(st.doc, page);
-              const matches = items.filter((item) => item.id !== excludeRunId && cleanFontName(item.originalFont).toLowerCase() === target);
+              // A run the user already replaced is skipped: rewriting it again
+              // from its original text would silently undo that edit.
+              const covers = page.overlays.filter((o) => o.kind === 'cover');
+              const matches = items.filter(
+                (item) => item.id !== excludeRunId && !isCoveredRect(item, covers) && cleanFontName(item.originalFont).toLowerCase() === target,
+              );
               if (!matches.length) return { pageId: page.id, matches, colors: [] as SampledColors[] };
               const colors = await sampleRunColors(
                 st.doc,
@@ -1051,8 +1056,8 @@ export function useFluvaStore() {
         set({ exportOpen: false });
         await withBusy(t('store.exporting'), async (progress) => {
           if (format === 'pdf') {
-            await exportAsPdf(st.doc, base);
-            set({ toast: t('store.pdfExported', { name: base }) });
+            const report = await exportAsPdf(st.doc, base);
+            set({ toast: report.replacedTextKept ? t('store.replacedTextKept', { name: base }) : t('store.pdfExported', { name: base }) });
           } else if (format === 'png' || format === 'jpg') {
             await exportAsImages(st.doc, base, format, progress);
             const multi = st.doc.pages.length > 1;

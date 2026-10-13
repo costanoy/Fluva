@@ -1,9 +1,10 @@
 import { Document, HeadingLevel, ImageRun, Packer, Paragraph, TextRun } from 'docx';
 import { zipSync, strToU8 } from 'fflate';
 import type { DocumentState } from './model';
-import { buildPdf } from './build';
+import { buildPdf, type BuildReport } from './build';
 import { canvasToBlob, rasterizePdf } from './render';
-import { extractPageImages, extractPageText, groupIntoLines } from './textExtract';
+import { extractPageImages, extractPageText, groupIntoLines, lineRuns, type LineItem } from './textExtract';
+import { isCoveredRect, TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT } from './geometry';
 import { stripExtension } from './loader';
 import { t } from '../i18n/translations';
 
@@ -30,9 +31,11 @@ export function downloadBytes(bytes: Uint8Array, filename: string, mime: string)
   downloadBlob(new Blob([copy.buffer], { type: mime }), filename);
 }
 
-export async function exportAsPdf(doc: DocumentState, baseName: string) {
-  const bytes = await buildPdf(doc);
+export async function exportAsPdf(doc: DocumentState, baseName: string): Promise<BuildReport> {
+  const report: BuildReport = {};
+  const bytes = await buildPdf(doc, report);
   downloadBytes(bytes, `${baseName}.pdf`, 'application/pdf');
+  return report;
 }
 
 /**
@@ -91,50 +94,77 @@ export async function exportAsDocx(
 
   for (let i = 0; i < doc.pages.length; i++) {
     const page = doc.pages[i];
-    const items = await extractPageText(doc, page);
+    // Text the user replaced is covered on the page and gone from the PDF
+    // export — it must not resurface in the Word file either.
+    const covers = page.overlays.filter((o) => o.kind === 'cover');
+    const pageText = (await extractPageText(doc, page)).filter((item) => !isCoveredRect(item, covers));
+
+    // Text the user added or replaced is part of the content too, read in
+    // place: a replaced line belongs where the original stood, not at the end.
+    const items: LineItem[] = [...pageText];
+    for (const overlay of page.overlays) {
+      if (overlay.kind !== 'text' || !overlay.text.trim()) continue;
+      overlay.text.split('\n').forEach((text, n) => {
+        const baseline = overlay.y - overlay.size * (TEXT_BASELINE_RATIO + n * TEXT_LINE_HEIGHT);
+        items.push({
+          text,
+          x: overlay.x,
+          y: baseline - overlay.size * 0.2,
+          width: text.length * overlay.size * 0.5,
+          fontSize: overlay.size,
+          bold: overlay.bold,
+          italic: overlay.italic,
+        });
+      });
+    }
     const lines = groupIntoLines(items);
 
     if (i > 0) {
       paragraphs.push(new Paragraph({ text: '', pageBreakBefore: true }));
     }
 
-    if (!lines.length) {
+    if (!pageText.length) {
       paragraphs.push(
         new Paragraph({
           children: [new TextRun({ text: t('export.docxNoExtractableText', { n: i + 1 }), italics: true, color: '6E6E67' })],
         }),
       );
-    } else {
-      // The largest run on a page is treated as its heading; everything else is body text.
-      const maxSize = Math.max(...items.map((t) => t.fontSize));
-      for (const line of lines) {
-        const isHeading = items.some((t) => t.fontSize >= maxSize - 0.5 && line.includes(t.text.trim()) && t.text.trim().length > 2);
-        paragraphs.push(
-          isHeading && line.length < 120
-            ? new Paragraph({ text: line, heading: HeadingLevel.HEADING_2, spacing: { before: 240, after: 120 } })
-            : new Paragraph({ children: [new TextRun(line)], spacing: { after: 120 } }),
-        );
-        count += 1;
-      }
     }
-
-    // Text overlays the user added are part of the document's content too.
-    for (const overlay of page.overlays) {
-      if (overlay.kind !== 'text' || !overlay.text.trim()) continue;
-      paragraphs.push(new Paragraph({ children: [new TextRun({ text: overlay.text, bold: overlay.bold, italics: overlay.italic })] }));
+    // The largest text on a page is treated as its heading; everything else is body text.
+    const maxSize = Math.max(0, ...items.map((item) => item.fontSize));
+    for (const line of lines) {
+      const runs = lineRuns(line);
+      const length = runs.reduce((n, run) => n + run.text.length, 0);
+      const isHeading = line.some((item) => item.fontSize >= maxSize - 0.5 && item.text.trim().length > 2);
+      paragraphs.push(
+        isHeading && length < 120
+          ? new Paragraph({ text: runs.map((run) => run.text).join(''), heading: HeadingLevel.HEADING_2, spacing: { before: 240, after: 120 } })
+          : new Paragraph({ children: runs.map((run) => new TextRun({ text: run.text, bold: run.bold, italics: run.italic })), spacing: { after: 120 } }),
+      );
       count += 1;
     }
 
-    for (const img of await extractPageImages(doc, page)) {
-      const widthPx = Math.round(img.width * DOCX_PX_PER_PT);
-      const heightPx = Math.round(img.height * DOCX_PX_PER_PT);
+    // The page's own images, then any the user added on top of it.
+    const pageImages: Array<{ bytes: Uint8Array; type: 'png' | 'jpg'; width: number; height: number }> = (await extractPageImages(doc, page)).map(
+      (img) => ({ ...img, type: 'png' as const }),
+    );
+    for (const overlay of page.overlays) {
+      if (overlay.kind !== 'image') continue;
+      const asset = doc.assets[overlay.assetId];
+      if (!asset) continue;
+      pageImages.push({ bytes: asset.bytes, type: asset.mime === 'image/png' ? 'png' : 'jpg', width: overlay.width, height: overlay.height });
+    }
+
+    for (const img of pageImages) {
+      const widthPx = Math.max(1, Math.round(img.width * DOCX_PX_PER_PT));
+      const heightPx = Math.max(1, Math.round(img.height * DOCX_PX_PER_PT));
       const shrink = Math.min(1, DOCX_MAX_IMAGE_WIDTH_PX / widthPx);
       paragraphs.push(
         new Paragraph({
           spacing: { before: 120, after: 120 },
           children: [
             new ImageRun({
-              type: 'png',
+              type: img.type,
               data: img.bytes,
               transformation: { width: Math.round(widthPx * shrink), height: Math.round(heightPx * shrink) },
             }),

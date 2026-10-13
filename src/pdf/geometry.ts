@@ -92,3 +92,11 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } {
     b: (int & 255) / 255,
   };
 }
+
+/** True when a run's middle sits under a replacement's cover — i.e. the text
+ * the user replaced, which no export should carry any more. */
+export function isCoveredRect(rect: Rect, covers: Rect[]): boolean {
+  const cx = rect.x + rect.width / 2;
+  const cy = rect.y + rect.height / 2;
+  return covers.some((c) => cx >= c.x && cx <= c.x + c.width && cy >= c.y && cy <= c.y + c.height);
+}
