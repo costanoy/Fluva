@@ -63,6 +63,9 @@ export function TextRunLayer({ page, scale }: { page: WorkPage; scale: number })
             className={`text-run${selected ? ' text-run-selected' : ''}`}
             data-tag={selected ? t('panel.editingTag') : undefined}
             title={t('run.detectedRun', { font: item.originalFont, size: Math.round(item.fontSize) })}
+            // The text itself is painted on the canvas underneath — this is
+            // how the font eyedropper knows which font a click landed on.
+            data-font-key={item.substituteKey}
             style={{
               left: item.x * scale,
               top: (page.height - item.y - item.height) * scale,

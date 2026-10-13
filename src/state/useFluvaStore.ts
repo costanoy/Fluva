@@ -1138,12 +1138,15 @@ export function useFluvaStore() {
 
       setFontPickerActive: (active: boolean) => set({ fontPickerActive: active }),
 
-      /** Reads the font a clicked DOM element is actually rendered in and maps it
-       * to the closest substitute family, so newly added text can match it. */
+      /** Reads the font a clicked element is in and maps it to the closest
+       * substitute family, so newly added text can match it. A PDF's own text
+       * is painted on a canvas: the clickable box over it carries the run's
+       * font as `data-font-key` (so do added texts) — its CSS font would only
+       * ever be the app's own. */
       captureFontFromElement: (el: Element) => {
-        const family = getComputedStyle(el).fontFamily;
-        const match = matchSubstitute(family);
-        set({ capturedFontKey: match.family.key, fontPickerActive: false, toast: t('store.fontCaptured', { font: match.family.label }) });
+        const tagged = el.closest('[data-font-key]')?.getAttribute('data-font-key');
+        const family = tagged ? familyByKey(tagged) : matchSubstitute(getComputedStyle(el).fontFamily).family;
+        set({ capturedFontKey: family.key, fontPickerActive: false, toast: t('store.fontCaptured', { font: family.label }) });
       },
 
       undo,

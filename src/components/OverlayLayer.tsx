@@ -381,6 +381,7 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
           ref={textRef}
           contentEditable={editable}
           suppressContentEditableWarning
+          data-font-key={overlay.fontKey}
           onInput={editable ? handleTextInput : undefined}
           onBlur={editable ? handleTextBlur : undefined}
           onKeyDown={editable ? handleTextKeyDown : undefined}
