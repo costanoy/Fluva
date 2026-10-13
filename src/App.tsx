@@ -19,9 +19,32 @@ function hasBreadcrumb(screen: string): boolean {
   return screen === 'editing' || screen === 'reading';
 }
 
+/** Once per page load — not once per mount (development mounts twice). */
+let openedFilesTaken = false;
+
 function AppShell() {
   const { state, actions } = useApp();
   const pushedHistoryRef = useRef(false);
+
+  // In the desktop app, a file opened with Fluva ("Abrir com o Fluva", or a
+  // double-clicked PDF) is waiting on the native side: it loads as if dropped.
+  useEffect(() => {
+    if (openedFilesTaken || !('__TAURI_INTERNALS__' in window)) return;
+    openedFilesTaken = true;
+    (async () => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const names = await invoke<string[]>('opened_file_names');
+      const files: File[] = [];
+      for (let index = 0; index < names.length; index++) {
+        const bytes = await invoke<ArrayBuffer>('take_opened_file', { index });
+        const name = names[index];
+        const type = /\.pdf$/i.test(name) ? 'application/pdf' : /\.png$/i.test(name) ? 'image/png' : 'image/jpeg';
+        files.push(new File([bytes], name, { type }));
+      }
+      if (files.length) actions.addFiles(files);
+    })().catch((err) => console.error('[Fluva] could not load the opened files', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Closing the tab, refreshing, or navigating away with unexported edits would
   // silently lose them — nothing here is saved anywhere but this browser tab.
