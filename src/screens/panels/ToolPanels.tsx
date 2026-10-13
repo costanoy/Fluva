@@ -32,6 +32,8 @@ export function MergePanel() {
             <div
               key={source.id}
               className={`merge-order-row${dragIndex === index ? ' dragging' : ''}`}
+              tabIndex={0}
+              aria-label={t('merge.orderAria', { n: index + 1, name: source.name })}
               {...reorderProps}
               style={reorderStyle}
             >

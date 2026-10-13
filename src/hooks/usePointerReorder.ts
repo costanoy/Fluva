@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 
 const DRAG_THRESHOLD = 6;
 
@@ -80,9 +80,35 @@ export function usePointerReorder(onReorder: (from: number, to: number) => void)
     [],
   );
 
+  /**
+   * The same move from the keyboard: Alt + an arrow key moves the focused item
+   * (or the item holding focus) one place, and focus follows it to where it
+   * landed — dragging is no use to someone who can't use a pointer.
+   */
+  const handleKeyDown = useCallback(
+    (index: number) => (e: ReactKeyboardEvent<HTMLElement>) => {
+      if (!e.altKey) return;
+      const step = e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : 0;
+      if (!step) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const list = e.currentTarget.parentElement;
+      const to = index + step;
+      if (!list || to < 0 || to >= list.querySelectorAll(':scope > [data-reorder-index]').length) return;
+      onReorder(index, to);
+      requestAnimationFrame(() => {
+        const landed = list.querySelector<HTMLElement>(`:scope > [data-reorder-index="${to}"]`);
+        const focusable = landed?.matches('[tabindex]') ? landed : landed?.querySelector<HTMLElement>('[tabindex]');
+        focusable?.focus();
+      });
+    },
+    [onReorder],
+  );
+
   /** Everything a reorderable item needs — spread directly onto its root element. */
   const itemProps = (index: number) => ({
     'data-reorder-index': index,
+    onKeyDown: handleKeyDown(index),
     onPointerDown: handlePointerDown(index),
     onPointerMove: handlePointerMove,
     onPointerUp: handlePointerUp,

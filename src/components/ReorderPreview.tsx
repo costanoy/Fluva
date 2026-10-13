@@ -32,6 +32,8 @@ export function ReorderPreview() {
             <div
               key={page.id}
               className={`split-preview-item split-preview-item-draggable${isDropTarget ? ' split-preview-item-drop' : ''}`}
+              tabIndex={0}
+              aria-label={t('reorder.itemAria', { n: index + 1 })}
               {...reorderProps}
               style={{ ...reorderStyle, opacity: dragIndex === index ? 0.4 : 1 }}
             >

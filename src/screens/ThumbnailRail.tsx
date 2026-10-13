@@ -54,7 +54,7 @@ export function ThumbnailRail() {
                 // With a page focused, the arrow keys browse pages one at a time —
                 // "up" to the previous page, "down" to the next — moving focus
                 // along so repeated presses keep walking the list.
-                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.altKey) {
                   e.preventDefault();
                   const next = e.key === 'ArrowUp' ? index - 1 : index + 1;
                   if (next < 0 || next >= state.doc.pages.length) return;

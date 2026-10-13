@@ -202,7 +202,9 @@ const pt = {
 
   // ---- reorder panel + preview ----
   'reorder.title': 'Organizar páginas',
-  'reorder.note': 'Arraste as páginas na área central ou na coluna à esquerda para reordenar o documento.',
+  'reorder.note': 'Arraste as páginas na área central ou na coluna à esquerda para reordenar o documento. Pelo teclado: Alt + setas.',
+  'reorder.itemAria': 'Página {n}. Alt + setas para mover.',
+  'merge.orderAria': '{n}. {name}. Alt + setas para mudar a ordem.',
   'reorder.previewNote': 'Arraste uma página e solte sobre outra para reordenar o documento.',
   'reorder.pageLabel': 'pág. {n}',
 
@@ -600,7 +602,9 @@ const en: Record<TranslationKey, string> = {
 
   // ---- reorder panel + preview ----
   'reorder.title': 'Reorder pages',
-  'reorder.note': 'Drag pages in the center area or in the left-hand column to reorder the document.',
+  'reorder.note': 'Drag pages in the center area or in the left-hand column to reorder the document. With the keyboard: Alt + arrow keys.',
+  'reorder.itemAria': 'Page {n}. Alt + arrow keys to move it.',
+  'merge.orderAria': '{n}. {name}. Alt + arrow keys to change the order.',
   'reorder.previewNote': 'Drag a page and drop it onto another to reorder the document.',
   'reorder.pageLabel': 'p. {n}',
 
