@@ -289,6 +289,22 @@ const pt = {
   'loader.imageReadError': 'Não foi possível ler a imagem.',
   'loader.fileTooLarge': '"{name}" tem {size}. O limite é 50MB.',
   'loader.pdfOpenError': 'Não foi possível abrir "{name}": {detail}',
+  'loader.pdfPasswordProtected': '"{name}" está protegido por senha de abertura. O Fluva ainda não abre arquivos assim: tire a senha no programa em que ele foi feito e tente de novo.',
+  'loader.pdfInvalid': '"{name}" não parece ser um PDF válido, ou o arquivo está corrompido.',
+  'render.encodeError': 'Não foi possível gerar a imagem.',
+  'store.protectedAsImages': '{name}.pdf exportado. Este PDF é protegido pelo autor, então as páginas dele foram salvas como imagem: o visual é o mesmo, mas o texto não pode ser selecionado.',
+
+  // ---- names of generated files and default texts ----
+  'file.defaultName': 'documento',
+  'file.page': '_pagina_{n}',
+  'file.part': '_parte{n}_paginas_{from}-{to}',
+  'file.range': '_intervalo{n}_paginas_{from}-{to}',
+  'file.selected': '_selecionadas',
+  'file.split': '_dividido',
+  'file.signed': '_assinado',
+  'file.converted': 'convertidos_{format}',
+  'wm.defaultText': 'AMOSTRA',
+  'font.unknown': 'Desconhecida',
 
   // ---- docx export ----
   'export.docxNoExtractableText': '[Página {n} não contém texto extraível]',
@@ -671,6 +687,22 @@ const en: Record<TranslationKey, string> = {
   'loader.imageReadError': "Couldn't read the image.",
   'loader.fileTooLarge': '"{name}" is {size}. The limit is 50MB.',
   'loader.pdfOpenError': 'Could not open "{name}": {detail}',
+  'loader.pdfPasswordProtected': "\"{name}\" is protected by an opening password. Fluva can't open files like this yet: remove the password in the program that made it and try again.",
+  'loader.pdfInvalid': "\"{name}\" doesn't look like a valid PDF, or the file is damaged.",
+  'render.encodeError': 'Could not create the image.',
+  'store.protectedAsImages': "{name}.pdf exported. This PDF is protected by its author, so its pages were saved as images: they look the same, but their text can't be selected.",
+
+  // ---- names of generated files and default texts ----
+  'file.defaultName': 'document',
+  'file.page': '_page_{n}',
+  'file.part': '_part{n}_pages_{from}-{to}',
+  'file.range': '_range{n}_pages_{from}-{to}',
+  'file.selected': '_selected',
+  'file.split': '_split',
+  'file.signed': '_signed',
+  'file.converted': 'converted_{format}',
+  'wm.defaultText': 'SAMPLE',
+  'font.unknown': 'Unknown',
 
   // ---- docx export ----
   'export.docxNoExtractableText': '[Page {n} contains no extractable text]',

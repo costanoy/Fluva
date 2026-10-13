@@ -1,7 +1,8 @@
 import { PDFDocument } from 'pdf-lib';
 import type { DocumentState } from './model';
 import { buildPdf } from './build';
-import { canvasToBlob, rasterizePdf } from './render';
+import { canvasToBlob, rasterizePages } from './render';
+import { t } from '../i18n/translations';
 
 export interface SplitResult {
   name: string;
@@ -29,7 +30,7 @@ export async function splitIntoParts(doc: DocumentState, baseName: string, parts
     const from = cursor + 1;
     const to = cursor + count;
     results.push({
-      name: `${baseName}_parte${i + 1}_paginas_${from}-${to}.pdf`,
+      name: `${baseName}${t('file.part', { n: i + 1, from, to })}.pdf`,
       bytes: await buildPdf({ ...doc, pages: doc.pages.slice(cursor, cursor + count) }),
     });
     cursor += count;
@@ -45,7 +46,7 @@ export async function splitByRanges(doc: DocumentState, baseName: string, ranges
     const from = Math.max(1, Math.min(total, Math.min(ranges[i].start, ranges[i].end)));
     const to = Math.max(1, Math.min(total, Math.max(ranges[i].start, ranges[i].end)));
     results.push({
-      name: `${baseName}_intervalo${i + 1}_paginas_${from}-${to}.pdf`,
+      name: `${baseName}${t('file.range', { n: i + 1, from, to })}.pdf`,
       bytes: await buildPdf({ ...doc, pages: doc.pages.slice(from - 1, to) }),
     });
   }
@@ -66,11 +67,11 @@ export async function extractSelectedPages(
   const valid = pageNumbers.filter((n) => n >= 1 && n <= total);
 
   if (merge) {
-    return [{ name: `${baseName}_selecionadas.pdf`, bytes: await buildPdf({ ...doc, pages: valid.map((n) => doc.pages[n - 1]) }) }];
+    return [{ name: `${baseName}${t('file.selected')}.pdf`, bytes: await buildPdf({ ...doc, pages: valid.map((n) => doc.pages[n - 1]) }) }];
   }
   const results: SplitResult[] = [];
   for (const n of valid) {
-    results.push({ name: `${baseName}_pagina_${n}.pdf`, bytes: await buildPdf({ ...doc, pages: [doc.pages[n - 1]] }) });
+    results.push({ name: `${baseName}${t('file.page', { n })}.pdf`, bytes: await buildPdf({ ...doc, pages: [doc.pages[n - 1]] }) });
   }
   return results;
 }
@@ -80,7 +81,7 @@ export async function splitEveryPage(doc: DocumentState, baseName: string): Prom
   const results: SplitResult[] = [];
   for (let i = 0; i < doc.pages.length; i++) {
     results.push({
-      name: `${baseName}_pagina_${i + 1}.pdf`,
+      name: `${baseName}${t('file.page', { n: i + 1 })}.pdf`,
       bytes: await buildPdf({ ...doc, pages: [doc.pages[i]] }),
     });
   }
@@ -131,19 +132,19 @@ export async function compressDocument(
 ): Promise<CompressResult> {
   const settings = COMPRESS_SETTINGS[level];
   const baked = await buildPdf(doc);
-  const scale = settings.dpi / 72;
-  const canvases = await rasterizePdf(baked, scale, (i, total) => onProgress?.(i, total));
-
   const out = await PDFDocument.create();
-  for (const canvas of canvases) {
-    const blob = await canvasToBlob(canvas, 'image/jpeg', settings.quality);
-    const jpegBytes = new Uint8Array(await blob.arrayBuffer());
-    const img = await out.embedJpg(jpegBytes);
-    const pageWidth = canvas.width / scale;
-    const pageHeight = canvas.height / scale;
-    const outPage = out.addPage([pageWidth, pageHeight]);
-    outPage.drawImage(img, { x: 0, y: 0, width: pageWidth, height: pageHeight });
-  }
+  // Each page is encoded and embedded as soon as it's drawn, so only one canvas is ever alive.
+  await rasterizePages(
+    baked,
+    () => settings.dpi / 72,
+    async (canvas, i, total, { width, height }) => {
+      const blob = await canvasToBlob(canvas, 'image/jpeg', settings.quality);
+      const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
+      const outPage = out.addPage([width, height]);
+      outPage.drawImage(img, { x: 0, y: 0, width, height });
+      onProgress?.(i + 1, total);
+    },
+  );
   if (out.getPageCount() === 0) out.addPage();
   const rasterBytes = await out.save();
 

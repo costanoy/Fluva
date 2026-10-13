@@ -12,7 +12,7 @@ import {
 } from '../pdf/model';
 import { formatBytes, isAcceptedFile, loadFile, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
 import { TEXT_BASELINE_RATIO, isCoveredRect } from '../pdf/geometry';
-import { canvasToBlob, rasterizePdf, releaseAll } from '../pdf/render';
+import { canvasToBlob, rasterizePages, releaseAll } from '../pdf/render';
 import type { CompressLevel, SplitResult } from '../pdf/ops';
 import type { ExportFormat } from '../pdf/exporters';
 import { DEFAULT_FAMILY_KEY, cleanFontName, familyByKey, matchSubstitute } from '../pdf/fonts';
@@ -440,7 +440,7 @@ export function useFluvaStore() {
           // otherwise ship in every screen's initial bundle, including the
           // reader and home screen, which never need them.
           const { buildPdf } = await import('../pdf/build');
-          const { downloadBytes, zipFiles } = await import('../pdf/exporters');
+          const { downloadBytes, imageExportScale, zipFiles } = await import('../pdf/exporters');
           const outputs: Array<{ name: string; bytes: Uint8Array }> = [];
 
           for (let i = 0; i < queue.length; i++) {
@@ -459,13 +459,17 @@ export function useFluvaStore() {
               outputs.push({ name: `${base}.pdf`, bytes: await buildPdf(doc) });
             } else {
               const baked = await buildPdf(doc);
-              const canvases = await rasterizePdf(baked, 150 / 72);
               const mime = target === 'png' ? 'image/png' : 'image/jpeg';
-              for (let p = 0; p < canvases.length; p++) {
-                const blob = await canvasToBlob(canvases[p], mime, target === 'jpg' ? 0.92 : undefined);
-                const suffix = canvases.length > 1 ? `_pagina_${p + 1}` : '';
-                outputs.push({ name: `${base}${suffix}.${target}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
-              }
+              // An image keeps its own resolution; each page is encoded as soon as it's drawn.
+              await rasterizePages(
+                baked,
+                (p) => imageExportScale(doc, doc.pages[p]),
+                async (canvas, p, total) => {
+                  const blob = await canvasToBlob(canvas, mime, target === 'jpg' ? 0.92 : undefined);
+                  const suffix = total > 1 ? t('file.page', { n: p + 1 }) : '';
+                  outputs.push({ name: `${base}${suffix}.${target}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
+                },
+              );
             }
             progress(i + 1, queue.length);
           }
@@ -474,7 +478,8 @@ export function useFluvaStore() {
             const mime = target === 'pdf' ? 'application/pdf' : target === 'png' ? 'image/png' : 'image/jpeg';
             downloadBytes(outputs[0].bytes, outputs[0].name, mime);
           } else {
-            zipFiles(outputs, `convertidos_${target}.zip`);
+            // PNG and JPEG are compressed already; deflating them again only costs time.
+            zipFiles(outputs, `${t('file.converted', { format: target })}.zip`, target === 'pdf' ? 6 : 0);
           }
           set({ toast: t('store.filesConverted', { count: outputs.length, format: target.toUpperCase() }) });
         });
@@ -1012,7 +1017,7 @@ export function useFluvaStore() {
           }
 
           if (results.length === 1) downloadBytes(results[0].bytes, results[0].name, 'application/pdf');
-          else zipFiles(results.map((r) => ({ name: r.name, bytes: r.bytes })), `${baseName}_dividido.zip`);
+          else zipFiles(results.map((r) => ({ name: r.name, bytes: r.bytes })), `${baseName}${t('file.split')}.zip`);
           set({ toast: message, toolMode: null });
         });
       },
@@ -1058,7 +1063,13 @@ export function useFluvaStore() {
         await withBusy(t('store.exporting'), async (progress) => {
           if (format === 'pdf') {
             const report = await exportAsPdf(st.doc, base);
-            set({ toast: report.replacedTextKept ? t('store.replacedTextKept', { name: base }) : t('store.pdfExported', { name: base }) });
+            set({
+              toast: report.protectedAsImages
+                ? t('store.protectedAsImages', { name: base })
+                : report.replacedTextKept
+                  ? t('store.replacedTextKept', { name: base })
+                  : t('store.pdfExported', { name: base }),
+            });
           } else if (format === 'png' || format === 'jpg') {
             await exportAsImages(st.doc, base, format, progress);
             const multi = st.doc.pages.length > 1;
@@ -1109,7 +1120,7 @@ export function useFluvaStore() {
           const pdfBytes = await buildPdf(st.doc);
           const pfxBytes = new Uint8Array(await pfxFile.arrayBuffer());
           const result = await signPdf(pdfBytes, pfxBytes, password);
-          const fileName = `${baseNameFor(st.doc)}_assinado.pdf`;
+          const fileName = `${baseNameFor(st.doc)}${t('file.signed')}.pdf`;
           downloadBytes(result.bytes, fileName, 'application/pdf');
           return { ok: true, fileName, ...result };
         } catch (err) {

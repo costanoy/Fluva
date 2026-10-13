@@ -173,7 +173,7 @@ export function WatermarkPanel() {
                 background: wm.source.kind === 'text' ? 'var(--color-accent)' : 'transparent',
                 color: 'var(--graphite)',
               }}
-              onClick={() => commit({ source: { kind: 'text', text: wm.source.kind === 'text' ? wm.source.text : 'AMOSTRA' } })}
+              onClick={() => commit({ source: { kind: 'text', text: wm.source.kind === 'text' ? wm.source.text : t('wm.defaultText') } })}
             >
               {t('wm.text')}
             </button>

@@ -1,8 +1,8 @@
 import { Document, HeadingLevel, ImageRun, Packer, Paragraph, TextRun } from 'docx';
 import { zipSync, strToU8 } from 'fflate';
-import type { DocumentState } from './model';
+import type { DocumentState, WorkPage } from './model';
 import { buildPdf, type BuildReport } from './build';
-import { canvasToBlob, rasterizePdf } from './render';
+import { canvasToBlob, rasterizePages } from './render';
 import { extractPageImages, extractPageText, groupIntoLines, lineRuns, type LineItem } from './textExtract';
 import { isCoveredRect, TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT } from './geometry';
 import { stripExtension } from './loader';
@@ -49,25 +49,41 @@ export async function exportAsImages(
   onProgress?: (done: number, total: number) => void,
 ) {
   const baked = await buildPdf(doc);
-  const canvases = await rasterizePdf(baked, IMAGE_EXPORT_DPI / 72, onProgress);
   const mime = format === 'png' ? 'image/png' : 'image/jpeg';
   const quality = format === 'jpg' ? 0.92 : undefined;
+  const pad = String(doc.pages.length).length;
+  const files: Array<{ name: string; bytes: Uint8Array }> = [];
 
-  if (canvases.length === 1) {
-    const blob = await canvasToBlob(canvases[0], mime, quality);
-    downloadBlob(blob, `${baseName}.${format}`);
+  // Each page is encoded as soon as it's drawn, so only one canvas is ever alive.
+  await rasterizePages(
+    baked,
+    (i) => imageExportScale(doc, doc.pages[i]),
+    async (canvas, i, total) => {
+      const blob = await canvasToBlob(canvas, mime, quality);
+      const name = `${baseName}${t('file.page', { n: String(i + 1).padStart(pad, '0') })}.${format}`;
+      files.push({ name, bytes: new Uint8Array(await blob.arrayBuffer()) });
+      onProgress?.(i + 1, total);
+    },
+  );
+
+  if (files.length === 1) {
+    downloadBytes(files[0].bytes, `${baseName}.${format}`, mime);
     return;
   }
+  // PNG and JPEG are compressed already; deflating them again only costs time.
+  zipFiles(files, `${baseName}_${format}.zip`, 0);
+}
 
-  const files: Record<string, Uint8Array> = {};
-  const pad = String(canvases.length).length;
-  for (let i = 0; i < canvases.length; i++) {
-    const blob = await canvasToBlob(canvases[i], mime, quality);
-    const name = `${baseName}_pagina_${String(i + 1).padStart(pad, '0')}.${format}`;
-    files[name] = new Uint8Array(await blob.arrayBuffer());
-  }
-  const zipped = zipSync(files, { level: 6 });
-  downloadBytes(zipped, `${baseName}_${format}.zip`, 'application/zip');
+/**
+ * Canvas pixels per point for turning a page into an image: a photo's page
+ * (one point per pixel, see the loader) comes out at its own resolution, not
+ * blown up twice over; a document page at 150 DPI, which reads cleanly on
+ * screen and in print.
+ */
+export function imageExportScale(doc: DocumentState, page: WorkPage | undefined): number {
+  const source = page?.sourceId ? doc.sources[page.sourceId] : undefined;
+  if (source?.kind === 'image' || (!source && doc.kind === 'image')) return 1;
+  return IMAGE_EXPORT_DPI / 72;
 }
 
 /** Word renders images at 96 CSS px per inch, PDF space is 72 points per inch. */
@@ -184,13 +200,28 @@ export async function exportAsDocx(
 }
 
 export function baseNameFor(doc: DocumentState): string {
-  return stripExtension(doc.name || 'documento') || 'documento';
+  return stripExtension(doc.name || t('file.defaultName')) || t('file.defaultName');
 }
 
-export function zipFiles(files: Array<{ name: string; bytes: Uint8Array }>, zipName: string) {
+/**
+ * Bundles files into one .zip download. Two files with the same name (an
+ * "imagem.png" and an "imagem.jpg" both converted to PDF) would otherwise
+ * overwrite each other inside the archive — the second gets a " (2)".
+ */
+export function zipFiles(files: Array<{ name: string; bytes: Uint8Array }>, zipName: string, level: 0 | 6 = 6) {
   const map: Record<string, Uint8Array> = {};
-  for (const f of files) map[f.name] = f.bytes;
-  downloadBytes(zipSync(map, { level: 6 }), zipName, 'application/zip');
+  for (const f of files) map[uniqueName(f.name, map)] = f.bytes;
+  downloadBytes(zipSync(map, { level }), zipName, 'application/zip');
+}
+
+function uniqueName(name: string, taken: Record<string, unknown>): string {
+  if (!(name in taken)) return name;
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  let n = 2;
+  while (`${stem} (${n})${ext}` in taken) n++;
+  return `${stem} (${n})${ext}`;
 }
 
 export { strToU8 };

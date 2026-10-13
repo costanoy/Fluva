@@ -2,7 +2,7 @@ import { degrees, PDFDocument, rgb, type PDFFont, type PDFPage, type PDFImage } 
 import type { CoverOverlay, DocumentState, ImageAsset, Overlay, WatermarkConfig, WorkPage } from './model';
 import { createFontSet, fontSupportsText, sanitizeForStandardFont } from './fonts';
 import { resolveOriginalFontBytes } from './textExtract';
-import { getPdfDoc } from './render';
+import { getPdfDoc, renderPageImage } from './render';
 import { removeCoveredText } from './textRemoval';
 import { displayRectToRaw, displayToRaw, hexToRgb, normalizeRotation, TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT, type Quarter } from './geometry';
 
@@ -12,7 +12,13 @@ export interface BuildReport {
    * unusual font encoding, text inside a form XObject...) and is still
    * findable in the file under its cover. */
   replacedTextKept?: boolean;
+  /** Pages of a PDF protected by its author (encrypted) went in as images:
+   * they look the same, but their text can't be selected or searched. */
+  protectedAsImages?: boolean;
 }
+
+/** Resolution a protected PDF's pages are redrawn at (see `buildPdf`). */
+const PROTECTED_PAGE_DPI = 200;
 
 /**
  * Assembles the real output PDF from the source files plus the recorded edits.
@@ -74,7 +80,19 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport): Promis
      * files (bleed) and cropped scans. */
     let origin = { x: 0, y: 0 };
 
-    if (source && source.kind === 'pdf') {
+    if (source && source.kind === 'pdf' && (await loadSource(source.id))?.isEncrypted) {
+      // pdf-lib can't decrypt a PDF its author protected, so a copied page
+      // came out blank. pdf.js can read it, so the page goes in as a picture
+      // of itself — with the replaced text painted out of the pixels, not
+      // just hidden under a cover. Overlays then sit on it in displayed space.
+      rawW = page.width;
+      rawH = page.height;
+      outPage = out.addPage([rawW, rawH]);
+      const covers = page.overlays.filter((o): o is CoverOverlay => o.kind === 'cover');
+      const img = await out.embedJpg(await renderPageImage(source, page.sourceIndex, PROTECTED_PAGE_DPI, covers));
+      outPage.drawImage(img, { x: 0, y: 0, width: rawW, height: rawH });
+      if (report) report.protectedAsImages = true;
+    } else if (source && source.kind === 'pdf') {
       const srcDoc = await loadSource(source.id);
       if (!srcDoc) continue;
       const [copied] = await out.copyPages(srcDoc, [page.sourceIndex]);

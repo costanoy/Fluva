@@ -47,7 +47,7 @@ export function TopBar() {
               // An empty name would export as "documento" silently (baseNameFor's
               // fallback) — restoring a visible placeholder here instead keeps
               // that behavior from looking like the field just ate the text.
-              if (!e.target.value.trim()) actions.renameDocument('documento' + ext);
+              if (!e.target.value.trim()) actions.renameDocument(t('file.defaultName') + ext);
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') e.currentTarget.blur();

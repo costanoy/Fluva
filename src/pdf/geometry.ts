@@ -15,6 +15,15 @@ export const TEXT_BASELINE_RATIO = 0.85;
 /** Line spacing used for multi-line text overlays, in both preview and output. */
 export const TEXT_LINE_HEIGHT = 1.2;
 
+/** The biggest canvas (in pixels) drawn in one go. iOS Safari silently paints
+ * nothing past ~16.7 megapixels; elsewhere the cap just keeps one page's
+ * memory in check. */
+export const MAX_CANVAS_PIXELS =
+  typeof navigator !== 'undefined' &&
+  (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
+    ? 16_000_000
+    : 50_000_000;
+
 export type Quarter = 0 | 90 | 180 | 270;
 
 export function normalizeRotation(deg: number): Quarter {

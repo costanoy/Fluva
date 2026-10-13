@@ -1,3 +1,5 @@
+import { t } from '../i18n/translations';
+
 /**
  * The working-document model.
  *
@@ -161,7 +163,7 @@ export function displaySize(page: WorkPage): { width: number; height: number } {
 export function defaultWatermark(): WatermarkConfig {
   return {
     enabled: false,
-    source: { kind: 'text', text: 'AMOSTRA' },
+    source: { kind: 'text', text: t('wm.defaultText') },
     x: 50,
     y: 50,
     scale: 100,

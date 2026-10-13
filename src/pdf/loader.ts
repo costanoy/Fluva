@@ -46,6 +46,11 @@ async function loadPdfFile(file: File, bytes: Uint8Array): Promise<LoadedFile> {
     // Logged so the real cause is visible in DevTools — the message shown to the
     // user is a guess, and a wrong guess is worse than no guess at all.
     console.error(`[Fluva] pdf.js failed to open "${file.name}":`, e);
+    // The two causes a person can act on get a plain explanation instead of
+    // pdf.js's own English ("No password given", "Invalid PDF structure").
+    const kind = e instanceof Error ? e.name : '';
+    if (kind === 'PasswordException') throw new Error(t('loader.pdfPasswordProtected', { name: file.name }));
+    if (kind === 'InvalidPDFException') throw new Error(t('loader.pdfInvalid', { name: file.name }));
     const detail = e instanceof Error ? e.message : String(e);
     throw new Error(t('loader.pdfOpenError', { name: file.name, detail }));
   }

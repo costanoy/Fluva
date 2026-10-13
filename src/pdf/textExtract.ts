@@ -2,6 +2,7 @@ import type { DocumentState, Rect, WorkPage } from './model';
 import { canvasToBlob, getPdfDoc } from './render';
 import { pdfjsLib } from './pdfjs';
 import { cleanFontName, isBoldName, isItalicName, matchSubstitute } from './fonts';
+import { t } from '../i18n/translations';
 
 export interface TextItem {
   id: string;
@@ -117,7 +118,7 @@ export async function extractPageText(doc: DocumentState, page: WorkPage): Promi
     const bottom = Math.max(...ys);
 
     const rawFontName = resolveFontName(item.fontName);
-    const originalFont = cleanFontName(rawFontName) || 'Desconhecida';
+    const originalFont = cleanFontName(rawFontName) || t('font.unknown');
     const match = matchSubstitute(rawFontName);
 
     items.push({

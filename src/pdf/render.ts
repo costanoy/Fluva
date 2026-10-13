@@ -1,5 +1,7 @@
-import { openWithPdfJs, type OpenedPdf, type PDFDocumentProxy } from './pdfjs';
-import type { SourceDoc, WorkPage } from './model';
+import { openWithPdfJs, type OpenedPdf, type PDFDocumentProxy, type PDFPageProxy } from './pdfjs';
+import type { Rect, SourceDoc, WorkPage } from './model';
+import { MAX_CANVAS_PIXELS } from './geometry';
+import { t } from '../i18n/translations';
 
 /** pdf.js documents are expensive to open, so keep one live proxy per source. */
 const docCache = new Map<string, Promise<OpenedPdf>>();
@@ -84,47 +86,88 @@ export async function renderPageRaw(
 
 /**
  * Renders the pages of a finished PDF (one already carrying baked-in overlays)
- * to canvases. Used by compression and by image export, both of which must see
- * exactly what the exported document contains.
+ * one at a time, handing each canvas to `onPage` and freeing it before the
+ * next. Used by compression and by image export, both of which must see
+ * exactly what the exported document contains. Keeping every page as a canvas
+ * at once took ~9 MB per A4 page at 150 DPI — hundreds of megabytes for a long
+ * document, enough to crash a phone's browser tab.
  *
  * Uses the print intent deliberately. It is the right appearance for a flattened
  * artifact, and it also makes pdf.js drive its render loop with microtasks instead
  * of requestAnimationFrame — so an export keeps running when the tab is in the
  * background, where rAF is throttled to a standstill.
+ *
+ * @param scaleFor canvas pixels per PDF point for the page at that index.
+ * @param onPage also given the page's displayed size in points.
  */
-export async function rasterizePdf(
+export async function rasterizePages(
   bytes: Uint8Array,
-  scale: number,
-  onPage?: (index: number, total: number) => void,
-): Promise<HTMLCanvasElement[]> {
+  scaleFor: (index: number) => number,
+  onPage: (canvas: HTMLCanvasElement, index: number, total: number, size: { width: number; height: number }) => Promise<void> | void,
+): Promise<void> {
   const opened = await openWithPdfJs(bytes);
   const pdf = opened.doc;
-  const canvases: HTMLCanvasElement[] = [];
   try {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale });
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(viewport.width));
-      canvas.height = Math.max(1, Math.round(viewport.height));
-      const ctx = canvas.getContext('2d')!;
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvas, viewport, intent: 'print' }).promise;
+      const canvas = await renderToCanvas(page, scaleFor(i - 1));
+      // The page's displayed size in points — the scale may have been capped.
+      const { width, height } = page.getViewport({ scale: 1 });
       page.cleanup();
-      canvases.push(canvas);
-      onPage?.(i, pdf.numPages);
+      try {
+        await onPage(canvas, i - 1, pdf.numPages, { width, height });
+      } finally {
+        canvas.width = canvas.height = 0;
+      }
     }
   } finally {
     await opened.destroy();
   }
-  return canvases;
+}
+
+/** Renders one pdf.js page on white, its scale capped to what a canvas can hold. */
+async function renderToCanvas(page: PDFPageProxy, wantedScale: number): Promise<HTMLCanvasElement> {
+  const base = page.getViewport({ scale: 1 });
+  const scale = Math.min(wantedScale, Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, base.width * base.height)));
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(viewport.width));
+  canvas.height = Math.max(1, Math.round(viewport.height));
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvas, viewport, intent: 'print' }).promise;
+  return canvas;
+}
+
+/**
+ * A source page as a JPEG picture of itself, with `covers` (displayed space,
+ * bottom-left origin) painted into the pixels. For a PDF pdf-lib can't copy
+ * from (see `buildPdf`): replaced text must not survive under its cover.
+ */
+export async function renderPageImage(source: SourceDoc, index: number, dpi: number, covers: Array<Rect & { color: string }>): Promise<Uint8Array> {
+  const page = await (await getPdfDoc(source)).getPage(index + 1);
+  try {
+    const canvas = await renderToCanvas(page, dpi / 72);
+    const height = page.getViewport({ scale: 1 }).height;
+    const k = canvas.height / height;
+    const ctx = canvas.getContext('2d')!;
+    for (const c of covers) {
+      ctx.fillStyle = c.color;
+      ctx.fillRect(c.x * k, (height - c.y - c.height) * k, c.width * k, c.height * k);
+    }
+    const blob = await canvasToBlob(canvas, 'image/jpeg', 0.9);
+    canvas.width = canvas.height = 0;
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally {
+    page.cleanup();
+  }
 }
 
 export async function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error('Falha ao gerar a imagem.'))),
+      (blob) => (blob ? resolve(blob) : reject(new Error(t('render.encodeError')))),
       mime,
       quality,
     );
