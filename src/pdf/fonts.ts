@@ -248,33 +248,11 @@ const WINANSI_EXTRA = new Set<string>([
   ...Array.from({ length: 0xff - 0xa0 + 1 }, (_, i) => String.fromCodePoint(0xa0 + i)),
 ]);
 
-/**
- * Applied to every family, standard or custom — custom fonts could in principle
- * render more of Unicode than WinAnsi covers, but pdf-lib's behavior on a glyph
- * truly missing from a custom font isn't guaranteed the same safe way, so this
- * keeps every family on the one alphabet already known to always work.
- */
-export function sanitizeForStandardFont(text: string): string {
-  let out = '';
-  for (const ch of text) {
-    if (ch === '\n' || ch === '\r' || ch === '\t') {
-      out += ch;
-      continue;
-    }
-    const code = ch.codePointAt(0)!;
-    if (code >= 0x20 && code <= 0x7e) {
-      out += ch;
-      continue;
-    }
-    const mapped = WINANSI_FALLBACKS[ch];
-    if (mapped !== undefined) {
-      out += mapped;
-      continue;
-    }
-    out += WINANSI_EXTRA.has(ch) ? ch : '?';
-  }
-  return out;
-}
+/** Whether a standard-14 font (WinAnsi-encoded) can draw the character. */
+const coversWinAnsi = (ch: string) => {
+  const code = ch.codePointAt(0)!;
+  return (code >= 0x20 && code <= 0x7e) || WINANSI_EXTRA.has(ch);
+};
 
 /**
  * Whether every character `text` needs (aside from plain whitespace) has an
@@ -312,12 +290,81 @@ export interface EmbeddedFontSet {
    * source run's font resource, passed in by the caller.
    */
   getOriginal(cacheKey: string, bytes: Uint8Array): Promise<PDFFont | null>;
+  /**
+   * Splits one line of text into pieces, each with a font that really has its
+   * glyphs: the family's own font wherever it can, and — the way a browser
+   * does it, so the file matches the preview — a broader font of the same
+   * style only for the characters it lacks (an arrow, "≥", a Greek or
+   * Cyrillic word). The standard fonts only know the Windows-1252 alphabet,
+   * and anything outside it used to come out as "?".
+   */
+  segments(familyKey: string, bold: boolean, italic: boolean, line: string): Promise<Array<{ text: string; font: PDFFont }>>;
+}
+
+type FontStyle = 'sans' | 'serif' | 'mono';
+
+/** Each family's look, for picking a fallback that blends in. */
+const FAMILY_STYLE: Record<string, FontStyle> = { serif: 'serif', caladea: 'serif', merriweather: 'serif', ptserif: 'serif', mono: 'mono', sourcecodepro: 'mono' };
+
+/** Liberation Sans ships with pdf.js (see vite.config.ts) and has Helvetica's
+ * exact metrics; Merriweather and Source Code Pro are among the bundled
+ * families with the widest coverage. Source Code Pro closes every chain — it
+ * even has the check mark. */
+const FALLBACKS: Record<FontStyle, string[]> = {
+  sans: ['liberation', 'sourcecodepro'],
+  serif: ['merriweather', 'liberation', 'sourcecodepro'],
+  mono: ['sourcecodepro', 'liberation'],
+};
+
+function variantUrl(familyKey: string, bold: boolean, italic: boolean): string | null {
+  if (familyKey === 'liberation') {
+    const variant = bold && italic ? 'BoldItalic' : bold ? 'Bold' : italic ? 'Italic' : 'Regular';
+    return `${import.meta.env.BASE_URL}${__PDFJS_ASSETS__}standard_fonts/LiberationSans-${variant}.ttf`;
+  }
+  const family = familyByKey(familyKey);
+  if (family.source.type !== 'custom') return null;
+  return bold && italic ? family.source.boldItalic : bold ? family.source.bold : italic ? family.source.italic : family.source.regular;
 }
 
 /** Embeds standard and custom fonts lazily and caches them per output document. */
 export function createFontSet(doc: PDFDocument): EmbeddedFontSet {
   const cache = new Map<string, Promise<PDFFont>>();
   const originalCache = new Map<string, Promise<PDFFont | null>>();
+  // A TrueType file's bytes plus which characters it can draw. Read before
+  // anything is embedded: pdf-lib writes every font it was handed into the
+  // file, used or not.
+  const programs = new Map<string, Promise<{ bytes: ArrayBuffer; covers: (ch: string) => boolean } | null>>();
+  const embedded = new Map<string, Promise<PDFFont>>();
+  const program = (url: string) => {
+    let entry = programs.get(url);
+    if (!entry) {
+      entry = (async () => {
+        try {
+          const { default: fontkit } = await import('@pdf-lib/fontkit');
+          const bytes = await fetch(url).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.statusText))));
+          const parsed = fontkit.create(new Uint8Array(bytes));
+          return { bytes, covers: (ch: string) => parsed.hasGlyphForCodePoint(ch.codePointAt(0)!) };
+        } catch {
+          return null;
+        }
+      })();
+      programs.set(url, entry);
+    }
+    return entry;
+  };
+  const embedUrl = (url: string) => {
+    let entry = embedded.get(url);
+    if (!entry) {
+      entry = (async () => {
+        await ensureFontkit();
+        const loaded = await program(url);
+        if (!loaded) throw new Error(`font unavailable: ${url}`);
+        return doc.embedFont(loaded.bytes, { subset: true });
+      })();
+      embedded.set(url, entry);
+    }
+    return entry;
+  };
   let fontkitRegistered = false;
   const ensureFontkit = async () => {
     if (!fontkitRegistered) {
@@ -344,15 +391,66 @@ export function createFontSet(doc: PDFDocument): EmbeddedFontSet {
             : bold ? family.source.bold
             : italic ? family.source.italic
             : family.source.regular;
-          entry = (async () => {
-            await ensureFontkit();
-            const bytes = await fetch(url).then((r) => r.arrayBuffer());
-            return doc.embedFont(bytes, { subset: true });
-          })();
+          entry = embedUrl(url);
         }
         cache.set(key, entry);
       }
       return entry;
+    },
+    async segments(familyKey, bold, italic, line) {
+      const ownUrl = variantUrl(familyKey, bold, italic);
+      const own = ownUrl ? await program(ownUrl) : null;
+      const ownCovers = ownUrl ? (ch: string) => !!own?.covers(ch) : coversWinAnsi;
+      const style = FAMILY_STYLE[familyKey] ?? 'sans';
+
+      // Per character: the font to draw it in (null = the family's own) and
+      // the text actually drawn.
+      const pieces: Array<{ url: string | null; text: string }> = [];
+      for (const ch of line) {
+        // No font draws a tab or a carriage return (and the standard ones
+        // refuse to encode them at all): a tab becomes spaces, as on screen.
+        if (ch === '\r') continue;
+        if (ch === '\t') {
+          pieces.push({ url: null, text: '    ' });
+          continue;
+        }
+        if (ownCovers(ch)) {
+          pieces.push({ url: null, text: ch });
+          continue;
+        }
+        // A stand-in the family's own font has reads better than a glyph
+        // borrowed from another font (a non-breaking hyphen as "-").
+        const mapped = WINANSI_FALLBACKS[ch];
+        if (mapped !== undefined && [...mapped].every(ownCovers)) {
+          pieces.push({ url: null, text: mapped });
+          continue;
+        }
+        let found: string | null = null;
+        for (const key of FALLBACKS[style]) {
+          const url = variantUrl(key, bold, italic);
+          if (url && (await program(url))?.covers(ch)) {
+            found = url;
+            break;
+          }
+        }
+        pieces.push(found ? { url: found, text: ch } : { url: null, text: ownCovers('?') ? '?' : '' });
+      }
+
+      const out: Array<{ text: string; font: PDFFont }> = [];
+      let current: { url: string | null; text: string } | null = null;
+      const flush = async () => {
+        if (!current?.text) return;
+        out.push({ text: current.text, font: current.url ? await embedUrl(current.url) : await this.get(familyKey, bold, italic) });
+      };
+      for (const piece of pieces) {
+        if (current && current.url === piece.url) current.text += piece.text;
+        else {
+          await flush();
+          current = { ...piece };
+        }
+      }
+      await flush();
+      return out;
     },
     getOriginal(cacheKey, bytes) {
       let entry = originalCache.get(cacheKey);

@@ -1,6 +1,6 @@
 import { degrees, PDFDocument, rgb, type PDFFont, type PDFPage, type PDFImage } from 'pdf-lib';
 import type { CoverOverlay, DocumentState, ImageAsset, Overlay, WatermarkConfig, WorkPage } from './model';
-import { createFontSet, fontSupportsText, sanitizeForStandardFont } from './fonts';
+import { createFontSet, fontSupportsText } from './fonts';
 import { resolveOriginalFontBytes } from './textExtract';
 import { getPdfDoc, renderPageImage } from './render';
 import { removeCoveredText } from './textRemoval';
@@ -294,13 +294,7 @@ async function drawOverlay(
         }
       }
     }
-    if (!font) font = await fonts.get(overlay.fontKey, overlay.bold, overlay.italic);
-    // Standard/substitute fonts are WinAnsi-only and throw on anything outside
-    // it; the original font, reused as-is from the source PDF, was never
-    // subject to that restriction and may cover a wider character set.
-    const text = usingOriginal ? overlay.text : sanitizeForStandardFont(overlay.text);
-    if (!text) return;
-    const lines = text.split('\n');
+    const lines = overlay.text.split('\n');
     const lineHeight = overlay.size * TEXT_LINE_HEIGHT;
     const { r, g, b } = hexToRgb(overlay.color);
 
@@ -311,8 +305,14 @@ async function drawOverlay(
     const right = { x: Math.cos(phi), y: Math.sin(phi) };
     const down = { x: Math.sin(phi), y: -Math.cos(phi) };
 
-    lines.forEach((line, i) => {
-      const width = font.widthOfTextAtSize(line, overlay.size);
+    for (const [i, line] of lines.entries()) {
+      // The original font, reused as-is from the source PDF, was checked to
+      // have every glyph; otherwise the line is split across the family's own
+      // font and fallbacks for whatever characters it lacks (see `segments`).
+      const pieces = usingOriginal && font
+        ? [{ text: line.replace(/\r/g, '').replace(/\t/g, '    '), font }]
+        : await fonts.segments(overlay.fontKey, overlay.bold, overlay.italic, line);
+      const width = pieces.reduce((sum, piece) => sum + piece.font.widthOfTextAtSize(piece.text, overlay.size), 0);
       let dx: number;
       let dy: number;
 
@@ -330,19 +330,23 @@ async function drawOverlay(
         dy = overlay.y + toBaseline * down.y;
       }
 
-      const pos = toRaw(dx, dy);
-      page.drawText(line, {
-        x: pos.x,
-        y: pos.y,
-        size: overlay.size,
-        font,
-        color: rgb(r, g, b),
-        opacity,
-        // /Rotate spins the page clockwise at display time, so the drawn angle has
-        // to compensate for it to land at the angle the user chose.
-        rotate: degrees(overlay.rotation + sourceRotation),
-      });
-    });
+      let advance = 0;
+      for (const piece of pieces) {
+        const pos = toRaw(dx + advance * right.x, dy + advance * right.y);
+        page.drawText(piece.text, {
+          x: pos.x,
+          y: pos.y,
+          size: overlay.size,
+          font: piece.font,
+          color: rgb(r, g, b),
+          opacity,
+          // /Rotate spins the page clockwise at display time, so the drawn angle has
+          // to compensate for it to land at the angle the user chose.
+          rotate: degrees(overlay.rotation + sourceRotation),
+        });
+        advance += piece.font.widthOfTextAtSize(piece.text, overlay.size);
+      }
+    }
     return;
   }
 
