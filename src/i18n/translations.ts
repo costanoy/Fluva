@@ -80,7 +80,7 @@ const pt = {
   'toolbar.watermark': "Marca d'água",
   'toolbar.reorder': 'Organizar',
   'toolbar.undo': 'Desfazer (Ctrl+Z)',
-  'toolbar.redo': 'Refazer (Ctrl+Shift+Z)',
+  'toolbar.redo': 'Refazer (Ctrl+Y)',
   'toolbar.zoomAria': 'Zoom da página',
   'toolbar.zoomTitle': 'Zoom: {pct}%',
 
@@ -478,7 +478,7 @@ const en: Record<TranslationKey, string> = {
   'toolbar.watermark': 'Watermark',
   'toolbar.reorder': 'Reorder',
   'toolbar.undo': 'Undo (Ctrl+Z)',
-  'toolbar.redo': 'Redo (Ctrl+Shift+Z)',
+  'toolbar.redo': 'Redo (Ctrl+Y)',
   'toolbar.zoomAria': 'Page zoom',
   'toolbar.zoomTitle': 'Zoom: {pct}%',
 

@@ -91,14 +91,40 @@ export function useFluvaStore() {
     });
   }, []);
 
+  /** Which gesture (a box being dragged, a slider being moved) is mid-way —
+   * see `liveEdit`. */
+  const liveKeyRef = useRef<string | null>(null);
+
   /** Updates document content and pushes the previous content onto the undo stack. */
   const mutate = useCallback((updater: Updater) => {
+    liveKeyRef.current = null;
     setStateRaw((st) => {
       const patch = typeof updater === 'function' ? updater(st) : updater;
       if (!patch) return st;
       return { ...st, ...patch, dirty: true, history: st.history.concat([snapshot(st)]).slice(-50), future: [] };
     });
   }, []);
+
+  /**
+   * One step of a gesture that changes the document continuously (dragging a
+   * box, moving a slider): applied right away, but only its first step adds
+   * an undo entry — holding the state from *before* the gesture. Recording it
+   * at the end instead, as before, snapshotted the already-moved state, and
+   * undo left the box exactly where it had been dragged to. `done` ends the
+   * gesture; a gesture that never ran (a plain click) records as usual.
+   */
+  const liveEdit = useCallback(
+    (key: string, updater: Updater, done: boolean) => {
+      if (liveKeyRef.current === key) {
+        if (done) liveKeyRef.current = null;
+        set(updater);
+        return;
+      }
+      mutate(updater);
+      if (!done) liveKeyRef.current = key;
+    },
+    [set, mutate],
+  );
 
   const undo = useCallback(() => {
     setStateRaw((st) => {
@@ -137,7 +163,14 @@ export function useFluvaStore() {
       // Let the browser's own undo work while the user is typing in a field.
       if (target && (/^(INPUT|TEXTAREA)$/.test(target.tagName) || target.isContentEditable)) return;
       if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.key.toLowerCase() !== 'z') return;
+      const key = e.key.toLowerCase();
+      // Ctrl+Y is redo on Windows, next to Ctrl+Shift+Z everywhere.
+      if (key === 'y' && !e.shiftKey) {
+        e.preventDefault();
+        redoRef.current();
+        return;
+      }
+      if (key !== 'z') return;
       e.preventDefault();
       if (e.shiftKey) redoRef.current();
       else undoRef.current();
@@ -659,6 +692,8 @@ export function useFluvaStore() {
 
       confirmPendingOverlay: () => set({ pendingOverlayId: null }),
 
+      /** `recordHistory: false` for each step of a drag or slide, then `true`
+       * to end it (see `liveEdit`). */
       updateOverlay: (id: string, patch: Partial<Overlay>, recordHistory = true) => {
         const apply = (st: AppState): Patch => {
           const page = currentPage(st);
@@ -666,8 +701,7 @@ export function useFluvaStore() {
           const overlays = page.overlays.map((o) => (o.id === id ? ({ ...o, ...patch } as Overlay) : o));
           return { doc: { ...st.doc, pages: replacePage(st, st.activePageIndex, { ...page, overlays }) } };
         };
-        if (recordHistory) mutate(apply);
-        else set(apply);
+        liveEdit(`overlay:${id}`, apply, recordHistory);
       },
 
       removeOverlay: (id: string) =>
@@ -837,11 +871,16 @@ export function useFluvaStore() {
 
       /* ------------------------------------------------------------ watermark */
 
+      /** Same live/commit pairing as `updateOverlay`. */
       updateWatermark: (patch: Partial<WatermarkConfig>, recordHistory = true) => {
         const apply = (st: AppState): Patch => ({ doc: { ...st.doc, watermark: { ...st.doc.watermark, ...patch } } });
-        if (recordHistory) mutate(apply);
-        else set(apply);
+        liveEdit('watermark', apply, recordHistory);
       },
+
+      /** A one-page watermark follows whichever page is open — not an edit
+       * of its own, so it stays out of the undo history. */
+      followWatermarkPage: (index: number) =>
+        set((st) => ({ doc: { ...st.doc, watermark: { ...st.doc.watermark, singlePageIndex: index } } })),
 
       uploadWatermarkImage: async () => {
         const files = await pickFile('image/png,image/jpeg');
@@ -1152,7 +1191,7 @@ export function useFluvaStore() {
       undo,
       redo,
     };
-  }, [set, mutate, undo, redo, withBusy]);
+  }, [set, mutate, liveEdit, undo, redo, withBusy]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

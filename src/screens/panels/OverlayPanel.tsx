@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Check, Circle, Move, Palette, Pipette, RotateCw, Square, Trash2 } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { useApp } from '../../state/AppContext';
@@ -240,6 +241,14 @@ function isLight(hex: string): boolean {
 }
 
 function RotationSlider({ value, onChange, onCommit }: { value: number; onChange: (v: number) => void; onCommit: (v: number) => void }) {
+  const moved = useRef(false);
+  // Arrow keys move it too: a release (pointer or key), or focus leaving,
+  // ends the change — once, and only if there was one.
+  const end = (input: HTMLInputElement) => {
+    if (!moved.current) return;
+    moved.current = false;
+    onCommit(Number(input.value));
+  };
   return (
     <>
       <div className="panel-label">{t('overlay.rotation', { deg: Math.round(value) })}</div>
@@ -248,8 +257,13 @@ function RotationSlider({ value, onChange, onCommit }: { value: number; onChange
         min={-180}
         max={180}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        onPointerUp={(e) => onCommit(Number((e.target as HTMLInputElement).value))}
+        onChange={(e) => {
+          moved.current = true;
+          onChange(Number(e.target.value));
+        }}
+        onPointerUp={(e) => end(e.currentTarget)}
+        onKeyUp={(e) => end(e.currentTarget)}
+        onBlur={(e) => end(e.currentTarget)}
         style={{ width: '100%' }}
       />
     </>

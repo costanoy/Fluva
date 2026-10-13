@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Download, GripVertical, Trash2, X } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { useApp } from '../../state/AppContext';
@@ -139,6 +139,7 @@ export function WatermarkPanel() {
   const wm = state.doc.watermark;
   const live = (patch: Parameters<typeof actions.updateWatermark>[0]) => actions.updateWatermark(patch, false);
   const commit = (patch: Parameters<typeof actions.updateWatermark>[0]) => actions.updateWatermark(patch, true);
+  const typed = useRef(false);
 
   // "Apenas na página selecionada" tracks whichever page is open right now —
   // browsing pages while this panel is open (and single-page mode is on) keeps
@@ -146,7 +147,7 @@ export function WatermarkPanel() {
   // the toggle was first flipped.
   useEffect(() => {
     if (wm.enabled && !wm.allPages && wm.singlePageIndex !== state.activePageIndex) {
-      live({ singlePageIndex: state.activePageIndex });
+      actions.followWatermarkPage(state.activePageIndex);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.activePageIndex, wm.enabled, wm.allPages]);
@@ -196,8 +197,15 @@ export function WatermarkPanel() {
                 type="text"
                 className="text-input"
                 value={wm.source.text}
-                onChange={(e) => live({ source: { kind: 'text', text: e.target.value } })}
-                onBlur={(e) => commit({ source: { kind: 'text', text: e.target.value } })}
+                onChange={(e) => {
+                  typed.current = true;
+                  live({ source: { kind: 'text', text: e.target.value } });
+                }}
+                onBlur={(e) => {
+                  if (!typed.current) return;
+                  typed.current = false;
+                  commit({ source: { kind: 'text', text: e.target.value } });
+                }}
               />
             </>
           ) : (
@@ -262,6 +270,14 @@ function Slider({
   onCommit: (v: number) => void;
   suffix: string;
 }) {
+  const moved = useRef(false);
+  // Arrow keys move it too: a release (pointer or key), or focus leaving,
+  // ends the change — once, and only if there was one.
+  const end = (input: HTMLInputElement) => {
+    if (!moved.current) return;
+    moved.current = false;
+    onCommit(Number(input.value));
+  };
   return (
     <>
       <div className="panel-label">
@@ -273,8 +289,13 @@ function Slider({
         min={min}
         max={max}
         value={value}
-        onChange={(e) => onLive(Number(e.target.value))}
-        onPointerUp={(e) => onCommit(Number((e.target as HTMLInputElement).value))}
+        onChange={(e) => {
+          moved.current = true;
+          onLive(Number(e.target.value));
+        }}
+        onPointerUp={(e) => end(e.currentTarget)}
+        onKeyUp={(e) => end(e.currentTarget)}
+        onBlur={(e) => end(e.currentTarget)}
         style={{ width: '100%' }}
       />
     </>
