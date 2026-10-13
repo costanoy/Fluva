@@ -75,6 +75,13 @@ export async function extractPageText(doc: DocumentState, page: WorkPage): Promi
 
   const items: TextItem[] = [];
   let index = 0;
+  // pdf.js reports each run in the page's raw user space; the editor works in
+  // the space the page is *displayed* in. The scale-1 viewport is exactly that
+  // mapping — it folds in the page's own /Rotate and a crop/media box that
+  // doesn't start at the origin, both of which left the clickable runs
+  // floating away from the text they belonged to.
+  const viewport = pdfPage.getViewport({ scale: 1 });
+  const [vA, vB, vC, vD] = viewport.transform;
 
   for (const raw of content.items) {
     if (!('str' in raw)) continue;
@@ -84,6 +91,31 @@ export async function extractPageText(doc: DocumentState, page: WorkPage): Promi
     const [a, b, , , e, f] = item.transform;
     // The transform's scale carries the rendered font size.
     const fontSize = Math.hypot(a, b) || item.height || 10;
+    const ux = a / fontSize;
+    const uy = b / fontSize;
+    // Only runs that read left-to-right on screen can be rewritten — the
+    // replacement is always set horizontally, so a vertical or upside-down run
+    // (rotated text, or an unrotated run on a turned page) is left alone
+    // rather than being "replaced" by text facing the wrong way.
+    const screenDx = vA * ux + vC * uy;
+    const screenDy = vB * ux + vD * uy;
+    if (screenDx <= 0 || Math.abs(screenDy) > Math.abs(screenDx) * 0.05) continue;
+
+    const width = item.width || fontSize * item.str.length * 0.5;
+    // The glyph box in raw space: from just below the baseline (descenders)
+    // to a full em above it, along the run's own direction.
+    const corners = [
+      [e + uy * fontSize * 0.2, f - ux * fontSize * 0.2],
+      [e + ux * width + uy * fontSize * 0.2, f + uy * width - ux * fontSize * 0.2],
+      [e - uy * fontSize, f + ux * fontSize],
+      [e + ux * width - uy * fontSize, f + uy * width + ux * fontSize],
+    ].map(([x, y]) => viewport.convertToViewportPoint(x, y));
+    const xs = corners.map((c) => c[0]);
+    const ys = corners.map((c) => c[1]);
+    const left = Math.min(...xs);
+    const top = Math.min(...ys);
+    const bottom = Math.max(...ys);
+
     const rawFontName = resolveFontName(item.fontName);
     const originalFont = cleanFontName(rawFontName) || 'Desconhecida';
     const match = matchSubstitute(rawFontName);
@@ -91,11 +123,11 @@ export async function extractPageText(doc: DocumentState, page: WorkPage): Promi
     items.push({
       id: `t_${page.id}_${index++}`,
       text: item.str,
-      x: e,
-      // pdf.js reports the text baseline; shift down so the box wraps the glyphs.
-      y: f - fontSize * 0.2,
-      width: item.width || fontSize * item.str.length * 0.5,
-      height: fontSize * 1.2,
+      // Displayed space, bottom-left origin — the viewport's own is top-left.
+      x: left,
+      y: viewport.height - bottom,
+      width: Math.max(...xs) - left,
+      height: bottom - top,
       fontSize,
       originalFont,
       bold: isBoldName(rawFontName),
@@ -324,6 +356,9 @@ export async function extractPageImages(doc: DocumentState, page: WorkPage): Pro
     m[4] * n[1] + m[5] * n[3] + n[5],
   ];
 
+  // Boxes are collected straight in the displayed (viewport) space, top-left
+  // origin, so the crop below lines up even on a rotated or offset page.
+  const displayViewport = pdfPage.getViewport({ scale: 1 });
   const boxes: Rect[] = [];
   const stack: number[][] = [];
   let ctm = [1, 0, 0, 1, 0, 0];
@@ -335,6 +370,15 @@ export async function extractPageImages(doc: DocumentState, page: WorkPage): Pro
       ctm = stack.pop() ?? ctm;
     } else if (fn === OPS.transform) {
       ctm = multiply(opList.argsArray[i] as number[], ctm);
+    } else if (fn === OPS.paintFormXObjectBegin) {
+      // A form XObject draws inside its own matrix — images placed in one
+      // (common in exported documents) are only where they are once it's applied.
+      stack.push(ctm);
+      const matrix = (opList.argsArray[i] as unknown[])[0] as ArrayLike<number> | null;
+      // A typed array, not a plain one, as pdf.js passes it around.
+      if (matrix && matrix.length === 6) ctm = multiply(Array.from(matrix), ctm);
+    } else if (fn === OPS.paintFormXObjectEnd) {
+      ctm = stack.pop() ?? ctm;
     } else if (fn === OPS.paintImageXObject || fn === OPS.paintImageMaskXObject) {
       // The unit square [0,1]x[0,1], carried through the current transform,
       // is exactly where an image XObject paints — that's the whole point
@@ -344,7 +388,7 @@ export async function extractPageImages(doc: DocumentState, page: WorkPage): Pro
         [1, 0],
         [0, 1],
         [1, 1],
-      ].map(([x, y]) => [ctm[0] * x + ctm[2] * y + ctm[4], ctm[1] * x + ctm[3] * y + ctm[5]]);
+      ].map(([x, y]) => displayViewport.convertToViewportPoint(ctm[0] * x + ctm[2] * y + ctm[4], ctm[1] * x + ctm[3] * y + ctm[5]));
       const xs = corners.map((c) => c[0]);
       const ys = corners.map((c) => c[1]);
       const x = Math.min(...xs);
@@ -380,7 +424,7 @@ export async function extractPageImages(doc: DocumentState, page: WorkPage): Pro
   const results: PageImage[] = [];
   for (const box of boxes) {
     const px = Math.max(0, Math.round(box.x * IMAGE_EXTRACT_SCALE));
-    const py = Math.max(0, Math.round((page.height - box.y - box.height) * IMAGE_EXTRACT_SCALE));
+    const py = Math.max(0, Math.round(box.y * IMAGE_EXTRACT_SCALE));
     const pw = Math.min(canvas.width - px, Math.round(box.width * IMAGE_EXTRACT_SCALE));
     const ph = Math.min(canvas.height - py, Math.round(box.height * IMAGE_EXTRACT_SCALE));
     if (pw <= 0 || ph <= 0) continue;

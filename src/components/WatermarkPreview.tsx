@@ -72,7 +72,9 @@ export function WatermarkPreview({
         width: overlay.width * scale,
         height: overlay.height * scale,
         transform: `rotate(${-overlay.rotation}deg)`,
-        transformOrigin: 'center center',
+        // The corner pdf-lib turns the image about; buildWatermarkOverlay
+        // already offsets it so the turned image stays centred on the spot.
+        transformOrigin: 'bottom left',
       }}
     />
   );

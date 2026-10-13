@@ -59,6 +59,10 @@ export async function buildPdf(doc: DocumentState): Promise<Uint8Array> {
     let sourceRotation: Quarter = 0;
     let rawW: number;
     let rawH: number;
+    /** Where the visible box starts in raw space — overlay coordinates count
+     * from there, and a box that doesn't start at 0,0 is common in print
+     * files (bleed) and cropped scans. */
+    let origin = { x: 0, y: 0 };
 
     if (source && source.kind === 'pdf') {
       const srcDoc = await loadSource(source.id);
@@ -66,9 +70,12 @@ export async function buildPdf(doc: DocumentState): Promise<Uint8Array> {
       const [copied] = await out.copyPages(srcDoc, [page.sourceIndex]);
       outPage = out.addPage(copied);
       sourceRotation = normalizeRotation(source.pageRotations[page.sourceIndex] ?? 0);
-      const size = outPage.getSize();
-      rawW = size.width;
-      rawH = size.height;
+      // The same box pdf.js displays (CropBox, defaulting to MediaBox), so
+      // editor coordinates and output coordinates share one frame.
+      const box = visibleBox(outPage);
+      rawW = box.width;
+      rawH = box.height;
+      origin = { x: box.x, y: box.y };
     } else if (source && source.kind === 'image') {
       // An image page is a page sized to the image, with the image drawn to fill it.
       rawW = page.width;
@@ -87,19 +94,25 @@ export async function buildPdf(doc: DocumentState): Promise<Uint8Array> {
       outPage = out.addPage([rawW, rawH]);
     }
 
+    const toRaw = (dx: number, dy: number) => {
+      const p = displayToRaw(sourceRotation, rawW, rawH, dx, dy);
+      return { x: p.x + origin.x, y: p.y + origin.y };
+    };
+
     const overlays = withWatermark(doc, page);
     for (const overlay of overlays) {
-      await drawOverlay(outPage, overlay, sourceRotation, rawW, rawH, fonts, embedAsset, page, resolveFontBytes);
+      await drawOverlay(outPage, overlay, sourceRotation, toRaw, fonts, embedAsset, page, resolveFontBytes);
     }
 
     // Crop after drawing: the content stream uses absolute user-space coordinates,
     // so narrowing the box afterwards clips the view without shifting anything.
     if (page.crop) {
-      const raw = displayRectToRaw(sourceRotation, rawW, rawH, page.crop);
-      const x0 = Math.max(0, raw.x);
-      const y0 = Math.max(0, raw.y);
-      const x1 = Math.min(rawW, raw.x + raw.width);
-      const y1 = Math.min(rawH, raw.y + raw.height);
+      const local = displayRectToRaw(sourceRotation, rawW, rawH, page.crop);
+      const raw = { ...local, x: local.x + origin.x, y: local.y + origin.y };
+      const x0 = Math.max(origin.x, raw.x);
+      const y0 = Math.max(origin.y, raw.y);
+      const x1 = Math.min(origin.x + rawW, raw.x + raw.width);
+      const y1 = Math.min(origin.y + rawH, raw.y + raw.height);
       if (x1 > x0 && y1 > y0) {
         outPage.setCropBox(x0, y0, x1 - x0, y1 - y0);
         outPage.setMediaBox(x0, y0, x1 - x0, y1 - y0);
@@ -111,6 +124,25 @@ export async function buildPdf(doc: DocumentState): Promise<Uint8Array> {
 
   if (out.getPageCount() === 0) out.addPage();
   return out.save();
+}
+
+/** The box pdf.js displays: the CropBox clipped to the MediaBox, normalized
+ * (a PDF may write either corner first). */
+function visibleBox(page: PDFPage): { x: number; y: number; width: number; height: number } {
+  const norm = (r: { x: number; y: number; width: number; height: number }) => ({
+    x0: Math.min(r.x, r.x + r.width),
+    y0: Math.min(r.y, r.y + r.height),
+    x1: Math.max(r.x, r.x + r.width),
+    y1: Math.max(r.y, r.y + r.height),
+  });
+  const media = norm(page.getMediaBox());
+  const crop = norm(page.getCropBox());
+  const x0 = Math.max(media.x0, crop.x0);
+  const y0 = Math.max(media.y0, crop.y0);
+  const x1 = Math.min(media.x1, crop.x1);
+  const y1 = Math.min(media.y1, crop.y1);
+  if (x1 <= x0 || y1 <= y0) return { x: media.x0, y: media.y0, width: media.x1 - media.x0, height: media.y1 - media.y0 };
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
 
 /** Watermarks are stored once on the document and expanded per page at build time. */
@@ -165,11 +197,17 @@ export function buildWatermarkOverlay(
   if (!asset) return null;
   const targetW = page.width * 0.5 * factor;
   const targetH = targetW * (asset.height / asset.width);
+  // pdf-lib turns an image about its bottom-left corner, the preview about its
+  // centre. Placing the corner where the turned centre lands back on (cx, cy)
+  // keeps the two in agreement at any angle.
+  const theta = (wm.rotation * Math.PI) / 180;
+  const halfW = targetW / 2;
+  const halfH = targetH / 2;
   return {
     id: 'watermark',
     kind: 'image',
-    x: cx - targetW / 2,
-    y: cy - targetH / 2,
+    x: cx - (halfW * Math.cos(theta) - halfH * Math.sin(theta)),
+    y: cy - (halfW * Math.sin(theta) + halfH * Math.cos(theta)),
     width: targetW,
     height: targetH,
     assetId: wm.source.assetId,
@@ -181,8 +219,7 @@ async function drawOverlay(
   page: PDFPage,
   overlay: Overlay,
   sourceRotation: Quarter,
-  rawW: number,
-  rawH: number,
+  toRaw: (dx: number, dy: number) => { x: number; y: number },
   fonts: ReturnType<typeof createFontSet>,
   embedAsset: (id: string) => Promise<PDFImage | null>,
   workPage: WorkPage,
@@ -247,7 +284,7 @@ async function drawOverlay(
         dy = overlay.y + toBaseline * down.y;
       }
 
-      const pos = displayToRaw(sourceRotation, rawW, rawH, dx, dy);
+      const pos = toRaw(dx, dy);
       page.drawText(line, {
         x: pos.x,
         y: pos.y,
@@ -266,7 +303,7 @@ async function drawOverlay(
   // Boxes are anchored at their bottom-left corner, and pdf-lib rotates a box
   // about that same corner. Mapping the corner through `displayToRaw` therefore
   // gives the anchor directly for every /Rotate value — no further adjustment.
-  const anchor = displayToRaw(sourceRotation, rawW, rawH, overlay.x, overlay.y);
+  const anchor = toRaw(overlay.x, overlay.y);
   // Covers are axis-aligned backdrops and carry no rotation of their own.
   const ownRotation = overlay.kind === 'cover' ? 0 : overlay.rotation;
   const angle = degrees(ownRotation + sourceRotation);
@@ -289,13 +326,7 @@ async function drawOverlay(
 
   if (overlay.kind === 'shape' && overlay.shape === 'circle') {
     // An ellipse is placed by its centre, so map the centre rather than the corner.
-    const centre = displayToRaw(
-      sourceRotation,
-      rawW,
-      rawH,
-      overlay.x + overlay.width / 2,
-      overlay.y + overlay.height / 2,
-    );
+    const centre = toRaw(overlay.x + overlay.width / 2, overlay.y + overlay.height / 2);
     const quarterTurned = (overlay.rotation + sourceRotation) % 180 !== 0;
     return void page.drawEllipse({
       x: centre.x,
