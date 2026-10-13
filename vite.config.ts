@@ -59,6 +59,9 @@ export default defineConfig({
       // whatever was cached on their first visit — this app changes often,
       // and a PWA that silently never updates itself is worse than no PWA.
       registerType: 'autoUpdate',
+      // Registered from main.tsx instead: the website wants it, the desktop
+      // app must not have it (see there).
+      injectRegister: false,
       includeAssets: ['favicon.png', 'favicon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
         name: 'Fluva',
