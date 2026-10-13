@@ -118,8 +118,9 @@
     grid-template-areas: "canvas" "rail" "panel";
   }
 
+  /* Above the tab bar (74px tall), which they used to cover. */
   .error-banner,
   .toast {
-    bottom: 12px;
+    bottom: 86px;
   }
 }
