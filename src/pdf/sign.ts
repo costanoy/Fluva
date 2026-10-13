@@ -1,5 +1,5 @@
 import { PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString } from 'pdf-lib';
-import { t } from '../i18n/translations';
+import { getLang, t } from '../i18n/translations';
 
 export class SignPdfError extends Error {
   constructor(
@@ -82,9 +82,13 @@ const CONTENTS_PLACEHOLDER_HEX = '0'.repeat(SIGNATURE_RESERVED_BYTES * 2);
 const BYTE_RANGE_PLACEHOLDER = 9_999_999_999;
 const BYTE_RANGE_WIDTH = String(BYTE_RANGE_PLACEHOLDER).length;
 
+/** PDF date with the UTC offset spelled out — PAdES takes the signing time
+ * from this /M entry, and without an offset a reader has to guess the zone. */
 function pdfDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `D:${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  const offset = -d.getTimezoneOffset();
+  const zone = offset === 0 ? 'Z' : `${offset > 0 ? '+' : '-'}${pad(Math.floor(Math.abs(offset) / 60))}'${pad(Math.abs(offset) % 60)}'`;
+  return `D:${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}${zone}`;
 }
 
 /** Locates a byte-exact ASCII pattern in the (mostly-binary) PDF buffer.
@@ -147,13 +151,14 @@ async function addSignaturePlaceholder(pdfBytes: Uint8Array): Promise<Uint8Array
 
 /** Rewrites the placeholder /ByteRange with the real byte spans (same total
  * width, so nothing shifts), and returns the exact bytes that get hashed
- * and signed — everything in the file except the /Contents hex digits
- * themselves. */
+ * and signed — everything in the file except the /Contents value, its
+ * `<` `>` delimiters included (the convention Acrobat and the PAdES
+ * validators check the gap against). */
 function computeByteRangeAndSignedRegion(bytes: Uint8Array): { patched: Uint8Array; signedRegion: Uint8Array; contentsHexStart: number } {
   const contentsPattern = `<${CONTENTS_PLACEHOLDER_HEX}`;
   const ltIdx = findAsciiOffset(bytes, contentsPattern);
   if (ltIdx === -1) throw new SignPdfError(t('sign.placeholderNotFound'));
-  const gtIdx = ltIdx + contentsPattern.length; // position of the closing '>'
+  const afterGt = ltIdx + contentsPattern.length + 1; // first byte after the closing '>'
   const contentsHexStart = ltIdx + 1;
 
   // The array's first element is always the literal `0` written by
@@ -163,7 +168,7 @@ function computeByteRangeAndSignedRegion(bytes: Uint8Array): { patched: Uint8Arr
   const brIdx = findAsciiOffset(bytes, byteRangePlaceholderText);
   if (brIdx === -1) throw new SignPdfError(t('sign.placeholderNotFound'));
 
-  const byteRange = [0, contentsHexStart, gtIdx, bytes.length - gtIdx];
+  const byteRange = [0, ltIdx, afterGt, bytes.length - afterGt];
   const byteRangeText = `0 ${byteRange.slice(1).map((n) => String(n).padEnd(BYTE_RANGE_WIDTH, ' ')).join(' ')}`;
 
   const patched = new Uint8Array(bytes);
@@ -176,9 +181,6 @@ function computeByteRangeAndSignedRegion(bytes: Uint8Array): { patched: Uint8Arr
   return { patched, signedRegion, contentsHexStart };
 }
 
-/** Parses the .pfx, matches its certificate to its private key, and returns
- * a detached CMS/PKCS#7 SignedData signature over `data`, as a hex string
- * ready to splice into /Contents. */
 /** node-forge's own `ArrayBufferView` type is a minimal structural interface
  * a real `Uint8Array` already satisfies at runtime (`.buffer`/`.byteLength`)
  * — this just helps TypeScript's overload resolution see that, rather than
@@ -192,56 +194,142 @@ function toArrayBufferView(bytes: Uint8Array): import('node-forge').util.ArrayBu
   return bytes as unknown as import('node-forge').util.ArrayBufferView;
 }
 
-async function signWithForge(data: Uint8Array, pfxBytes: Uint8Array, password: string): Promise<{ hex: string; signer: SignerInfo }> {
-  const forge = await import('node-forge');
+type Forge = typeof import('node-forge');
+type Certificate = import('node-forge').pki.Certificate;
+type RsaPrivateKey = import('node-forge').pki.rsa.PrivateKey;
 
+/** ESS signing-certificate-v2 (RFC 5035) — the attribute PAdES baseline
+ * requires so a validator can tie the signature to exactly one certificate. */
+const OID_SIGNING_CERTIFICATE_V2 = '1.2.840.113549.1.9.16.2.47';
+
+/** SHA-256 as a forge binary string. WebCrypto when available (every secure
+ * context, which a signing page always is): it hashes a 50MB file in a blink,
+ * where forge's pure-JS digest takes seconds. */
+async function sha256Binary(forge: Forge, data: Uint8Array): Promise<string> {
+  if (globalThis.crypto?.subtle) {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data as Uint8Array<ArrayBuffer>));
+    let bin = '';
+    for (const byte of digest) bin += String.fromCharCode(byte);
+    return bin;
+  }
+  const md = forge.md.sha256.create();
+  md.update(forge.util.createBuffer(toArrayBufferView(data)).getBytes());
+  return md.digest().getBytes();
+}
+
+function formatCertDate(d: Date): string {
+  return new Intl.DateTimeFormat(getLang() === 'pt' ? 'pt-BR' : 'en-US', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
+}
+
+/** Opens the .pfx and returns the private key with the certificate that
+ * actually pairs with it — a .pfx can bundle the issuing chain too, so the
+ * match is made by comparing RSA moduli, the way signing tools do. */
+function openPkcs12(forge: Forge, pfxBytes: Uint8Array, password: string): { privateKey: RsaPrivateKey; certificate: Certificate; chain: Certificate[] } {
   let p12;
   try {
     const p12Asn1 = forge.asn1.fromDer(forge.util.createBuffer(toArrayBufferView(pfxBytes)));
     p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);
-  } catch {
+  } catch (err) {
+    // An elliptic-curve key opens fine with the right password but can't be
+    // read by forge, which only speaks RSA — that is not a password problem.
+    if (err instanceof Error && /RSAPrivateKey|Unknown OID|not RSA/i.test(err.message)) {
+      throw new SignPdfError(t('sign.unsupportedKey'));
+    }
     throw new SignPdfError(t('sign.wrongPasswordOrFile'), 'wrong-password');
   }
 
-  const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] ?? [];
-  const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[forge.pki.oids.pkcs8ShroudedKeyBag] ?? [];
-  const privateKey = keyBags[0]?.key as import('node-forge').pki.rsa.PrivateKey | undefined;
-  if (!privateKey) throw new SignPdfError(t('sign.noPrivateKey'));
+  const { oids } = forge.pki;
+  const chain = (p12.getBags({ bagType: oids.certBag })[oids.certBag] ?? [])
+    .map((bag) => bag.cert)
+    .filter((cert): cert is Certificate => !!cert);
+  // Most .pfx files wrap the key in a password-encrypted bag, but some
+  // exporters store it as a plain keyBag inside the (still MAC-protected) file.
+  const keys = [
+    ...(p12.getBags({ bagType: oids.pkcs8ShroudedKeyBag })[oids.pkcs8ShroudedKeyBag] ?? []),
+    ...(p12.getBags({ bagType: oids.keyBag })[oids.keyBag] ?? []),
+  ]
+    .map((bag) => bag.key as RsaPrivateKey | undefined)
+    .filter((key): key is RsaPrivateKey => !!key);
+  if (!keys.length) throw new SignPdfError(t('sign.noPrivateKey'));
+  if (!chain.length) throw new SignPdfError(t('sign.noCertificate'));
 
-  // A .pfx can bundle more than one certificate (the signer's plus the
-  // issuing chain) — the one that actually pairs with the private key is
-  // identified by comparing RSA moduli, the same way real signing tools do.
-  let certificate = certBags.find((bag) => {
-    const pub = bag.cert?.publicKey as import('node-forge').pki.rsa.PublicKey | undefined;
-    return pub?.n.equals(privateKey.n);
-  })?.cert;
-  if (!certificate) certificate = certBags[0]?.cert;
-  if (!certificate) throw new SignPdfError(t('sign.noCertificate'));
-
-  const p7 = forge.pkcs7.createSignedData();
-  p7.content = forge.util.createBuffer(toArrayBufferView(data));
-  for (const bag of certBags) if (bag.cert) p7.addCertificate(bag.cert);
-  p7.addSigner({
-    key: privateKey,
-    certificate,
-    digestAlgorithm: forge.pki.oids.sha256,
-    authenticatedAttributes: [
-      { type: forge.pki.oids.contentType, value: forge.pki.oids.data },
-      // messageDigest and signingTime are left without an explicit value —
-      // forge computes/fills both itself from `content` and the current
-      // time when `sign()` runs.
-      { type: forge.pki.oids.messageDigest },
-      { type: forge.pki.oids.signingTime },
-    ],
-  });
-  p7.sign({ detached: true });
-
-  const der = forge.asn1.toDer(p7.toAsn1()).getBytes();
-  const hex = forge.util.bytesToHex(der);
-  if (hex.length > CONTENTS_PLACEHOLDER_HEX.length) {
-    throw new SignPdfError(t('sign.signatureTooLarge'));
+  for (const privateKey of keys) {
+    if (!privateKey.n) throw new SignPdfError(t('sign.unsupportedKey'));
+    const certificate = chain.find((cert) => (cert.publicKey as import('node-forge').pki.rsa.PublicKey).n?.equals(privateKey.n));
+    if (certificate) return { privateKey, certificate, chain };
   }
-  return { hex, signer: describeSigner(certificate) };
+  return { privateKey: keys[0], certificate: chain[0], chain };
+}
+
+/**
+ * Builds the detached CMS SignedData by hand rather than through
+ * `forge.pkcs7`, whose signer only knows the contentType / messageDigest /
+ * signingTime attributes. PAdES baseline (ETSI EN 319 142-1, B-B level)
+ * needs exactly the opposite on two counts: the ESS signing-certificate-v2
+ * attribute must be present, and signing-time must not be (the claimed time
+ * is the signature dictionary's /M instead).
+ */
+async function buildCmsSignature(
+  forge: Forge,
+  signedRegion: Uint8Array,
+  privateKey: RsaPrivateKey,
+  certificate: Certificate,
+  chain: Certificate[],
+): Promise<string> {
+  const { asn1, pki } = forge;
+  const { oids } = pki;
+  const U = asn1.Class.UNIVERSAL;
+  const T = asn1.Type;
+  const oid = (id: string) => asn1.create(U, T.OID, false, asn1.oidToDer(id).getBytes());
+  const seq = (value: import('node-forge').asn1.Asn1[]) => asn1.create(U, T.SEQUENCE, true, value);
+  const set = (value: import('node-forge').asn1.Asn1[]) => asn1.create(U, T.SET, true, value);
+  const octets = (bin: string) => asn1.create(U, T.OCTETSTRING, false, bin);
+  const nul = () => asn1.create(U, T.NULL, false, '');
+  const integer = (bin: string) => asn1.create(U, T.INTEGER, false, bin);
+  const attribute = (type: string, value: import('node-forge').asn1.Asn1) => seq([oid(type), set([value])]);
+  const sha256AlgorithmId = () => seq([oid(oids.sha256), nul()]);
+
+  const certDer = asn1.toDer(pki.certificateToAsn1(certificate)).getBytes();
+  const certHash = forge.md.sha256.create().update(certDer).digest().getBytes();
+
+  // ESSCertIDv2 with the hash algorithm left at its SHA-256 default (so it is
+  // omitted, as DER requires) and no issuerSerial, as CAdES baseline advises.
+  const signingCertificateV2 = seq([seq([seq([octets(certHash)])])]);
+
+  // DER encodes a SET OF in ascending order of its members' encodings, and the
+  // signature covers exactly that encoding — so sort before signing.
+  const signedAttributes = [
+    attribute(oids.contentType, oid(oids.data)),
+    attribute(oids.messageDigest, octets(await sha256Binary(forge, signedRegion))),
+    attribute(OID_SIGNING_CERTIFICATE_V2, signingCertificateV2),
+  ]
+    .map((attr) => ({ attr, der: asn1.toDer(attr).getBytes() }))
+    .sort((a, b) => (a.der < b.der ? -1 : a.der > b.der ? 1 : 0))
+    .map(({ attr }) => attr);
+
+  const attributesDigest = forge.md.sha256.create();
+  attributesDigest.update(asn1.toDer(set(signedAttributes)).getBytes());
+  const signature = privateKey.sign(attributesDigest);
+
+  const signerInfo = seq([
+    integer(asn1.integerToDer(1).getBytes()),
+    seq([pki.distinguishedNameToAsn1(certificate.issuer), integer(forge.util.hexToBytes(certificate.serialNumber))]),
+    sha256AlgorithmId(),
+    asn1.create(asn1.Class.CONTEXT_SPECIFIC, 0, true, signedAttributes),
+    seq([oid(oids.rsaEncryption), nul()]),
+    octets(signature),
+  ]);
+
+  const signedData = seq([
+    integer(asn1.integerToDer(1).getBytes()),
+    set([sha256AlgorithmId()]),
+    seq([oid(oids.data)]),
+    asn1.create(asn1.Class.CONTEXT_SPECIFIC, 0, true, chain.map((cert) => pki.certificateToAsn1(cert))),
+    set([signerInfo]),
+  ]);
+
+  const contentInfo = seq([oid(oids.signedData), asn1.create(asn1.Class.CONTEXT_SPECIFIC, 0, true, [signedData])]);
+  return forge.util.bytesToHex(asn1.toDer(contentInfo).getBytes());
 }
 
 /**
@@ -251,11 +339,25 @@ async function signWithForge(data: Uint8Array, pfxBytes: Uint8Array, password: s
  * in-memory, client-side.
  */
 export async function signPdf(pdfBytes: Uint8Array, pfxBytes: Uint8Array, password: string): Promise<SignResult> {
+  const forge = await import('node-forge');
+  const { privateKey, certificate, chain } = openPkcs12(forge, pfxBytes, password);
+
+  // A signature from an expired (or not yet valid) certificate is rejected by
+  // every validator — refuse up front instead of handing over a dud file.
+  const now = new Date();
+  if (now > certificate.validity.notAfter) {
+    throw new SignPdfError(t('sign.certExpired', { date: formatCertDate(certificate.validity.notAfter) }));
+  }
+  if (now < certificate.validity.notBefore) {
+    throw new SignPdfError(t('sign.certNotYetValid', { date: formatCertDate(certificate.validity.notBefore) }));
+  }
+
   const withPlaceholder = await addSignaturePlaceholder(pdfBytes);
   const { patched, signedRegion, contentsHexStart } = computeByteRangeAndSignedRegion(withPlaceholder);
   const signedAt = new Date();
-  const { hex: signatureHex, signer } = await signWithForge(signedRegion, pfxBytes, password);
+  const signatureHex = await buildCmsSignature(forge, signedRegion, privateKey, certificate, chain);
+  if (signatureHex.length > CONTENTS_PLACEHOLDER_HEX.length) throw new SignPdfError(t('sign.signatureTooLarge'));
   const paddedHex = signatureHex.padEnd(CONTENTS_PLACEHOLDER_HEX.length, '0');
   patched.set(new TextEncoder().encode(paddedHex), contentsHexStart);
-  return { bytes: patched, signer, signedAt };
+  return { bytes: patched, signer: describeSigner(certificate), signedAt };
 }

@@ -309,6 +309,9 @@ const pt = {
   'sign.noPrivateKey': 'Não foi possível encontrar a chave privada no certificado.',
   'sign.noCertificate': 'Não foi possível encontrar um certificado válido no arquivo.',
   'sign.signatureTooLarge': 'A assinatura gerada é maior do que o esperado para este certificado.',
+  'sign.certExpired': 'Este certificado venceu em {date}. Assinaturas feitas com ele são recusadas pelos validadores; use um certificado dentro da validade.',
+  'sign.certNotYetValid': 'Este certificado só começa a valer em {date}. Tente de novo a partir dessa data.',
+  'sign.unsupportedKey': 'Este certificado usa um tipo de chave que o Fluva ainda não suporta (apenas RSA, o padrão dos certificados A1 do ICP-Brasil).',
   'sign.success': '{name}_assinado.pdf exportado.',
   // ---- redesign (risografia) ----
   'home.navTools': 'Ferramentas',
@@ -687,6 +690,9 @@ const en: Record<TranslationKey, string> = {
   'sign.noPrivateKey': 'Could not find a private key in the certificate.',
   'sign.noCertificate': 'Could not find a valid certificate in the file.',
   'sign.signatureTooLarge': 'The generated signature is larger than expected for this certificate.',
+  'sign.certExpired': 'This certificate expired on {date}. Validators reject signatures made with it; please use a certificate that is still valid.',
+  'sign.certNotYetValid': 'This certificate only becomes valid on {date}. Please try again from that date.',
+  'sign.unsupportedKey': 'This certificate uses a key type Fluva does not support yet (RSA only, the standard for ICP-Brasil A1 certificates).',
   'sign.success': '{name}_signed.pdf exported.',
 
   // ---- redesign (risografia) ----
