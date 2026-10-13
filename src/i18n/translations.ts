@@ -777,10 +777,24 @@ function detectLang(): Lang {
 
 const STORAGE_KEY = 'fluva-lang';
 
+/** Merely touching `localStorage` throws when the browser blocks site data,
+ * and this runs while the module loads — unguarded, it took the whole app
+ * down to a blank page instead of just forgetting the language choice. */
 function loadStoredLang(): Lang | null {
-  if (typeof localStorage === 'undefined') return null;
-  const stored = localStorage.getItem(STORAGE_KEY);
-  return stored === 'pt' || stored === 'en' ? stored : null;
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored === 'pt' || stored === 'en' ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeLang(lang: Lang): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, lang);
+  } catch {
+    /* storage blocked or full: the choice simply isn't remembered */
+  }
 }
 
 // On the website each language has its own address ("/" in Portuguese,
@@ -843,7 +857,7 @@ export function getLang(): Lang {
 
 export function setLang(lang: Lang): void {
   currentLang = lang;
-  if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, lang);
+  storeLang(lang);
   syncDocument(lang);
 }
 
