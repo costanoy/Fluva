@@ -1,5 +1,5 @@
 import { openWithPdfJs, type OpenedPdf, type PDFDocumentProxy, type PDFPageProxy } from './pdfjs';
-import type { Rect, SourceDoc, WorkPage } from './model';
+import type { DocumentState, Overlay, Rect, SourceDoc, WorkPage } from './model';
 import { MAX_CANVAS_PIXELS } from './geometry';
 import { t } from '../i18n/translations';
 
@@ -82,6 +82,38 @@ export async function renderPageRaw(
     ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
   }
   return canvas;
+}
+
+/**
+ * A page drawn with `edits` (its text replacements, see replacement.ts)
+ * already applied the way the export applies them — original text removed,
+ * new text written into the runs it replaces — and rendered by pdf.js like
+ * the rest of the page. Edited text then looks on screen exactly like its
+ * neighbours: the same font program, rasterized the same way, at the same
+ * resolution. Same framing as `renderPageRaw` (no crop, no user rotation).
+ */
+export async function renderEditedPage(doc: DocumentState, page: WorkPage, edits: Overlay[], scale: number): Promise<HTMLCanvasElement> {
+  const { buildPdf } = await import('./build');
+  const bytes = await buildPdf({
+    ...doc,
+    pages: [{ ...page, rotation: 0, crop: null, overlays: edits }],
+    watermark: { ...doc.watermark, enabled: false },
+  });
+  const opened = await openWithPdfJs(bytes);
+  try {
+    const pdfPage = await opened.doc.getPage(1);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(page.width * scale));
+    canvas.height = Math.max(1, Math.round(page.height * scale));
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await pdfPage.render({ canvas, viewport: pdfPage.getViewport({ scale }) }).promise;
+    pdfPage.cleanup();
+    return canvas;
+  } finally {
+    await opened.destroy();
+  }
 }
 
 /**

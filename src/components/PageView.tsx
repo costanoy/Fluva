@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import type { SourceDoc, WorkPage } from '../pdf/model';
+import type { DocumentState, Overlay, SourceDoc, WorkPage } from '../pdf/model';
 import { displaySize } from '../pdf/model';
-import { renderPageRaw } from '../pdf/render';
+import { renderEditedPage, renderPageRaw } from '../pdf/render';
+
+/** The most pixels one page's canvas gets in the live view — plenty for a
+ * sharp page on any screen, without a huge bitmap at extreme zoom. */
+const VIEW_MAX_PIXELS = 24_000_000;
 
 /**
  * Geometry shared by the page canvas and its overlay layer.
@@ -41,18 +45,31 @@ interface PageViewProps {
   className?: string;
   style?: CSSProperties;
   onClick?: () => void;
+  /** Text replacements to draw into the page itself, as the export will
+   * (see renderEditedPage) — `signature` identifies them. */
+  edits?: { doc: DocumentState; overlays: Overlay[]; signature: string };
+  /** Told which `edits` the canvas now shows (null: the plain page). */
+  onRendered?: (signature: string | null) => void;
 }
 
-export function PageView({ page, source, scale, children, className, style, onClick }: PageViewProps) {
+export function PageView({ page, source, scale, children, className, style, onClick, edits, onRendered }: PageViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const shown = displaySize(page);
   const pageKeyRef = useRef<string | null>(null);
+  const editsKeyRef = useRef<string | null>(null);
+  // The latest edits and callback, read when a render starts — the effect
+  // re-runs on their signature, not on every new document object.
+  const latest = useRef({ edits, onRendered });
+  latest.current = { edits, onRendered };
+  const editsKey = edits?.overlays.length ? edits.signature : null;
 
   useEffect(() => {
     const pageKey = `${page.sourceId ?? ''}:${page.sourceIndex}:${page.id}`;
     const isFreshPage = pageKeyRef.current !== pageKey;
     pageKeyRef.current = pageKey;
+    const editsChanged = editsKeyRef.current !== editsKey;
+    editsKeyRef.current = editsKey;
 
     let cancelled = false;
     if (isFreshPage) setReady(false);
@@ -66,17 +83,32 @@ export function PageView({ page, source, scale, children, className, style, onCl
     // change keeps that same bitmap on screen, smoothly scaled, until the
     // zoom settles. A genuinely new page still swaps immediately — there's
     // no valid bitmap to fall back to, so nothing is gained by waiting.
-    const delay = isFreshPage ? 0 : 120;
+    const delay = isFreshPage || editsChanged ? 0 : 120;
+    // Drawn in device pixels, not CSS pixels: on a 125-200% display the page
+    // used to be rendered at a fraction of the screen's resolution and scaled
+    // up — soft next to anything the browser draws itself, edited text included.
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const pixels = Math.min(scale * dpr, Math.sqrt(VIEW_MAX_PIXELS / Math.max(1, page.width * page.height)));
     const timer = window.setTimeout(() => {
-      renderPageRaw(source, page, scale)
-        .then((rendered) => {
+      const { edits: current } = latest.current;
+      const withEdits = !!editsKey && !!current;
+      const render = withEdits
+        ? renderEditedPage(current.doc, page, current.overlays, pixels).catch((err) => {
+            console.warn('[Fluva] could not draw the edited page', err);
+            return null;
+          })
+        : renderPageRaw(source, page, pixels);
+      Promise.resolve(render)
+        .then(async (rendered) => {
+          const usable = rendered ?? (await renderPageRaw(source, page, pixels));
           if (cancelled) return;
           const target = canvasRef.current;
           if (!target) return;
-          target.width = rendered.width;
-          target.height = rendered.height;
-          target.getContext('2d')!.drawImage(rendered, 0, 0);
+          target.width = usable.width;
+          target.height = usable.height;
+          target.getContext('2d')!.drawImage(usable, 0, 0);
           setReady(true);
+          latest.current.onRendered?.(rendered && withEdits ? editsKey : null);
         })
         .catch(() => {
           if (!cancelled) setReady(true);
@@ -87,7 +119,7 @@ export function PageView({ page, source, scale, children, className, style, onCl
       window.clearTimeout(timer);
     };
     // Re-render only when the underlying bitmap would actually change.
-  }, [source, page.id, page.sourceId, page.sourceIndex, page.width, page.height, scale]);
+  }, [source, page.id, page.sourceId, page.sourceIndex, page.width, page.height, scale, editsKey]);
 
   return (
     <div

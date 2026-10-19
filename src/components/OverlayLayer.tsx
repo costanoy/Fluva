@@ -99,9 +99,13 @@ interface OverlayLayerProps {
   onLiveChange: (id: string, patch: Partial<Overlay>) => void;
   onCommit: (id: string, patch: Partial<Overlay>) => void;
   interactive: boolean;
+  /** Overlays the page canvas already draws itself (see EditorCanvas): a
+   * cover there isn't painted again, and a text keeps only its box — still
+   * there to click — while the canvas shows its real glyphs. */
+  baked?: ReadonlySet<string>;
 }
 
-export function OverlayLayer({ page, overlays, assets, scale, selectedId, onSelect, onLiveChange, onCommit, interactive }: OverlayLayerProps) {
+export function OverlayLayer({ page, overlays, assets, scale, selectedId, onSelect, onLiveChange, onCommit, interactive, baked }: OverlayLayerProps) {
   return (
     <>
       {(overlays ?? page.overlays).map((overlay) => (
@@ -116,6 +120,7 @@ export function OverlayLayer({ page, overlays, assets, scale, selectedId, onSele
           onLiveChange={onLiveChange}
           onCommit={onCommit}
           interactive={interactive}
+          baked={baked}
         />
       ))}
     </>
@@ -127,7 +132,8 @@ interface OverlayItemProps extends Omit<OverlayLayerProps, 'selectedId'> {
   selected: boolean;
 }
 
-function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveChange, onCommit, interactive }: OverlayItemProps) {
+function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveChange, onCommit, interactive, baked }: OverlayItemProps) {
+  const inCanvas = !!baked?.has(overlay.id);
   const { state, actions } = useApp();
   const box = overlayBox(overlay);
   const dragState = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
@@ -335,6 +341,7 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
     : {};
 
   if (overlay.kind === 'cover') {
+    if (inCanvas) return null;
     return (
       <div
         style={{
@@ -391,7 +398,7 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
             lineHeight: TEXT_LINE_HEIGHT,
             fontWeight: overlay.bold ? 700 : 400,
             fontStyle: overlay.italic ? 'italic' : 'normal',
-            color: overlay.color,
+            color: inCanvas ? 'transparent' : overlay.color,
             whiteSpace: 'pre',
             userSelect: editable ? 'text' : 'none',
             cursor: editable ? 'text' : base.cursor,

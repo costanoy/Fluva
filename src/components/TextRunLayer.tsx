@@ -26,9 +26,10 @@ function isRunReplaced(item: TextItem, overlays: Overlay[]): boolean {
 /**
  * Makes the PDF's real text runs clickable so the user can rewrite one.
  *
- * PDF text is not editable in place — it lives in a content stream, not a text box.
- * Selecting a run hands its true geometry, size and font to the side panel, which
- * then covers the original and draws the replacement. Once a run has been
+ * PDF text lives in a content stream, not a text box. Selecting a run hands
+ * its true geometry, size and font to the side panel; the replacement it
+ * commits is written back into the run itself on export (see textRemoval.ts)
+ * and drawn that way on the page too (see EditorCanvas). Once a run has been
  * replaced, further edits happen on the overlay itself (inline, on the canvas)
  * rather than through this layer — see `isRunReplaced` above.
  */

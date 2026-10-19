@@ -1,6 +1,7 @@
 import type { DocumentState, Rect, WorkPage } from './model';
 import { canvasToBlob, getPdfDoc } from './render';
 import { pdfjsLib } from './pdfjs';
+import { textInkColors } from './textPlan';
 import { cleanFontName, isBoldName, isItalicName, matchSubstitute } from './fonts';
 import { t } from '../i18n/translations';
 
@@ -271,9 +272,15 @@ export async function sampleRunColors(doc: DocumentState, page: WorkPage, bounds
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   await pdfPage.render({ canvas, viewport, intent: 'print' }).promise;
+  // The ink comes from the page's own drawing instructions when it can:
+  // sampled pixels of small text are lighter, antialiased shades of it.
+  const inks = await textInkColors(pdfPage, boundsList).catch(() => boundsList.map(() => null));
   pdfPage.cleanup();
 
-  return boundsList.map((bounds) => sampleBounds(canvas, SAMPLE_SCALE, page.height, bounds));
+  return boundsList.map((bounds, index) => {
+    const sampled = sampleBounds(canvas, SAMPLE_SCALE, page.height, bounds);
+    return { backgroundColor: sampled.backgroundColor, color: inks[index] ?? sampled.color };
+  });
 }
 
 /** What line grouping needs from a piece of text — the page's own runs and

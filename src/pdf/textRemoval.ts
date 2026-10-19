@@ -1,241 +1,30 @@
-import { PDFArray, PDFDict, PDFName, PDFRawStream, PDFStream, decodePDFRawStream, type PDFContext, type PDFPage } from 'pdf-lib';
-import { pdfjsLib, type PDFPageProxy } from './pdfjs';
+import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFStream, decodePDFRawStream, type PDFContext, type PDFFont, type PDFPage } from 'pdf-lib';
+import { Encodings, Font as StandardFontMetrics, FontNames } from '@pdf-lib/standard-fonts';
+import type { PDFPageProxy } from './pdfjs';
 import type { Rect } from './model';
+import { planPage, type GlyphInfo, type OpPlan } from './textPlan';
 
 /**
- * Removes the original text that a replacement covers.
+ * Removes the original text a replacement covers — and, when it can, writes
+ * the new text in its place.
  *
- * Replacing a text run paints an opaque box over it and draws the new text on
- * top — which looked right but left the old words in the file, where search,
- * copy/paste and any text extractor still found them (a changed amount, a
- * "hidden" CPF...). This deletes them from the page's content stream instead.
+ * Replacing a text run used to paint an opaque box over it and draw the new
+ * text on top: the old words stayed in the file (search, copy/paste and any
+ * text extractor still found them), the box blanked out whatever was behind
+ * them (a highlight, a table rule), and the new text came out in a look-alike
+ * font, a sampled color and none of the original spacing. Now the run's own
+ * operators in the page's content stream are rewritten instead: its glyphs
+ * are dropped, and the new text goes into that same operator, in the same
+ * font program, at the same size, color, spacing and position — the way the
+ * rest of the line is drawn. Only characters that font doesn't have (a subset
+ * font carries just the ones the document used) come from a fallback font,
+ * one by one.
  *
- * pdf.js is the source of truth for *where* each glyph lands (it already
- * resolves every font's widths, encodings and the text state); its operator
- * list carries exactly one `showText` per text-showing operator of the page
- * content (Tj, TJ, ' and "), in order. A small content-stream lexer finds the
- * same operators in the raw bytes, and each one whose glyphs fall under a
- * cover is rewritten as a pure positioning TJ of the same advance — so the
- * rest of the line keeps its exact place. When the two sides don't line up one
- * to one, the page is left untouched rather than risk deleting the wrong text.
+ * pdf.js says where each glyph lands and with what (see textPlan.ts); a small
+ * content-stream lexer finds the same operators in the raw bytes. When the
+ * two sides don't line up one to one, the page is left untouched rather than
+ * risk rewriting the wrong text.
  */
-
-type Matrix = [number, number, number, number, number, number];
-const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
-
-function multiply(m: Matrix, n: Matrix): Matrix {
-  return [
-    m[0] * n[0] + m[1] * n[2],
-    m[0] * n[1] + m[1] * n[3],
-    m[2] * n[0] + m[3] * n[2],
-    m[2] * n[1] + m[3] * n[3],
-    m[4] * n[0] + m[5] * n[2] + n[4],
-    m[4] * n[1] + m[5] * n[3] + n[5],
-  ];
-}
-
-function apply(m: Matrix, x: number, y: number): [number, number] {
-  return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
-}
-
-interface Glyph {
-  width: number;
-  isSpace?: boolean;
-}
-
-/** What to do with one text-showing operator. */
-interface OpPlan {
-  /** Per glyph (numbers excluded), in order: drop it from the output. */
-  drop: boolean[];
-  /** Per glyph, the TJ adjustment (thousandths of the font size) that moves the
-   * pen exactly as far as that glyph did. */
-  adjust: number[];
-}
-
-/** One entry per text-showing operator of the page content, or null when the
- * operator must not be touched (vertical writing, zero font size). */
-type PagePlan = Array<OpPlan | null>;
-
-interface TextState {
-  ctm: Matrix;
-  textMatrix: Matrix;
-  x: number;
-  y: number;
-  lineX: number;
-  lineY: number;
-  fontMatrix: number[];
-  fontSize: number;
-  fontDirection: number;
-  vertical: boolean;
-  charSpacing: number;
-  wordSpacing: number;
-  hScale: number;
-  leading: number;
-  rise: number;
-}
-
-/**
- * Replays the page's operator list the way pdf.js's own canvas renderer does
- * (same text state, same advance formula) and decides, for each text-showing
- * operator, which glyphs sit under one of `covers` (displayed space,
- * bottom-left origin — the space overlays live in).
- */
-async function planPage(pdfPage: PDFPageProxy, covers: Rect[]): Promise<PagePlan> {
-  const OPS = pdfjsLib.OPS;
-  const viewport = pdfPage.getViewport({ scale: 1 });
-  const opList = await pdfPage.getOperatorList({ annotationMode: pdfjsLib.AnnotationMode.DISABLE });
-
-  let st: TextState = {
-    ctm: IDENTITY,
-    textMatrix: IDENTITY,
-    x: 0,
-    y: 0,
-    lineX: 0,
-    lineY: 0,
-    fontMatrix: [0.001, 0, 0, 0.001, 0, 0],
-    fontSize: 0,
-    fontDirection: 1,
-    vertical: false,
-    charSpacing: 0,
-    wordSpacing: 0,
-    hScale: 1,
-    leading: 0,
-    rise: 0,
-  };
-  const stack: TextState[] = [];
-  let formDepth = 0;
-  const plan: PagePlan = [];
-
-  const underCover = (tx: number, ty: number): boolean => {
-    const [ux, uy] = apply(st.ctm, ...apply(st.textMatrix, tx, ty));
-    const [vx, vy] = viewport.convertToViewportPoint(ux, uy);
-    const dx = vx;
-    const dy = viewport.height - vy;
-    return covers.some((c) => dx >= c.x - 1 && dx <= c.x + c.width + 1 && dy >= c.y - 1 && dy <= c.y + c.height + 1);
-  };
-
-  const moveText = (x: number, y: number) => {
-    st.lineX += x;
-    st.lineY += y;
-    st.x = st.lineX;
-    st.y = st.lineY;
-  };
-
-  for (let i = 0; i < opList.fnArray.length; i++) {
-    const fn = opList.fnArray[i];
-    const args = opList.argsArray[i] as unknown[];
-
-    // Form XObjects are separate streams with their own operators; they are
-    // drawn between these brackets and never show up in the page's own content.
-    if (fn === OPS.paintFormXObjectBegin) {
-      formDepth++;
-      continue;
-    }
-    if (fn === OPS.paintFormXObjectEnd) {
-      formDepth = Math.max(0, formDepth - 1);
-      continue;
-    }
-    if (formDepth > 0) continue;
-
-    switch (fn) {
-      case OPS.save:
-        stack.push({ ...st });
-        break;
-      case OPS.restore:
-        st = stack.pop() ?? st;
-        break;
-      case OPS.transform:
-        st.ctm = multiply(args as Matrix, st.ctm);
-        break;
-      case OPS.beginText:
-        st.textMatrix = IDENTITY;
-        st.x = st.y = st.lineX = st.lineY = 0;
-        break;
-      case OPS.setFont: {
-        const [fontRef, size] = args as [string, number];
-        let font: { fontMatrix?: number[]; vertical?: boolean } | null = null;
-        try {
-          font = pdfPage.commonObjs.get(fontRef) as { fontMatrix?: number[]; vertical?: boolean };
-        } catch {
-          font = null;
-        }
-        st.fontMatrix = font?.fontMatrix ?? [0.001, 0, 0, 0.001, 0, 0];
-        st.vertical = !!font?.vertical;
-        st.fontDirection = size < 0 ? -1 : 1;
-        st.fontSize = Math.abs(size);
-        break;
-      }
-      case OPS.setTextMatrix: {
-        // pdf.js hands the matrix over as a typed array, not a plain one.
-        const m = (Array.isArray(args[0]) || ArrayBuffer.isView(args[0]) ? args[0] : args) as Matrix;
-        st.textMatrix = [m[0], m[1], m[2], m[3], m[4], m[5]];
-        st.x = st.y = st.lineX = st.lineY = 0;
-        break;
-      }
-      case OPS.moveText:
-        moveText(args[0] as number, args[1] as number);
-        break;
-      case OPS.setLeadingMoveText:
-        st.leading = args[1] as number;
-        moveText(args[0] as number, args[1] as number);
-        break;
-      case OPS.nextLine:
-        moveText(0, st.leading);
-        break;
-      case OPS.setLeading:
-        st.leading = -(args[0] as number);
-        break;
-      case OPS.setCharSpacing:
-        st.charSpacing = args[0] as number;
-        break;
-      case OPS.setWordSpacing:
-        st.wordSpacing = args[0] as number;
-        break;
-      case OPS.setHScale:
-        st.hScale = (args[0] as number) / 100;
-        break;
-      case OPS.setTextRise:
-        st.rise = args[0] as number;
-        break;
-      case OPS.showText:
-      case OPS.showSpacedText: {
-        const glyphs = (args[0] ?? []) as Array<Glyph | number>;
-        if (st.vertical || st.fontSize === 0) {
-          plan.push(null);
-          // Vertical runs still advance the pen, but nothing after them on the
-          // same line is a candidate either — leave the state as is.
-          break;
-        }
-        const hScale = st.hScale * st.fontDirection;
-        const advanceScale = st.fontSize * (st.fontMatrix[0] ?? 0.001);
-        const signedSize = st.fontSize * st.fontDirection;
-        const drop: boolean[] = [];
-        const adjust: number[] = [];
-        let x = 0;
-        for (const glyph of glyphs) {
-          if (typeof glyph === 'number') {
-            x += (-glyph * st.fontSize) / 1000;
-            continue;
-          }
-          const spacing = (glyph.isSpace ? st.wordSpacing : 0) + st.charSpacing;
-          const advance = glyph.width * advanceScale + spacing * st.fontDirection;
-          // Probe the glyph's middle: half its advance along, a third of an em up.
-          const cx = st.x + (x + advance / 2) * hScale;
-          const cy = st.y + st.rise + st.fontSize * 0.3;
-          drop.push(underCover(cx, cy));
-          adjust.push(-(glyph.width * (st.fontMatrix[0] ?? 0.001) * 1000 + (spacing * 1000) / signedSize));
-          x += advance;
-        }
-        st.x += x * hScale;
-        plan.push({ drop, adjust });
-        break;
-      }
-      default:
-        break;
-    }
-  }
-  return plan;
-}
 
 /* ------------------------------------------------------------- the lexer */
 
@@ -468,6 +257,7 @@ const num = (n: number) => {
   const r = Math.round(n * 1000) / 1000;
   return Object.is(r, -0) ? '0' : String(r);
 };
+const codeBytes = (code: number, width: 1 | 2) => (width === 2 ? [(code >> 8) & 255, code & 255] : [code & 255]);
 
 /** The single positioning TJ that moves the pen as far as `plan`'s glyphs did. */
 function advanceOnly(operands: Token[], plan: OpPlan): number {
@@ -478,11 +268,30 @@ function advanceOnly(operands: Token[], plan: OpPlan): number {
   return total;
 }
 
+/** What goes into a rewritten text operator, in order: character codes, pen
+ * moves (TJ numbers), or whole operators that switch to another font and back
+ * (which have to sit between two TJ arrays). */
+type Piece = { bytes: number[] } | { adjust: number } | { raw: string };
+
+/** New text laid out for one spot: its pieces and how far they move the pen,
+ * in TJ units (thousandths of the font size). */
+interface Insertion {
+  /** The glyph of the rewritten operator it goes right before. */
+  at: number;
+  cover: number;
+  pieces: Piece[];
+  advance: number;
+}
+
 /**
- * Rewrites one text-showing operation. Returns the replacement source text, or
- * null when it can't be done safely (the original is then kept).
+ * Rewrites one text-showing operation: drops the glyphs under any cover (each
+ * replaced by a move of the same advance, so the rest of the line keeps its
+ * exact place) and puts `insertions` in. New text is followed by a move back
+ * over its own advance, so the dropped glyphs' moves still carry the pen
+ * exactly where the original run took it. Returns the replacement source
+ * text, or null when it can't be done safely (the original is then kept).
  */
-function rewrite(op: Operation, plan: OpPlan, content: Uint8Array, codeWidth: 1 | 2 | null): string | null {
+function rewrite(op: Operation, plan: OpPlan, content: Uint8Array, codeWidth: 1 | 2 | null, insertions: Insertion[]): string | null {
   // ' and " also move to the next line (and " sets the spacing) — kept as-is.
   let prefix = '';
   if (op.op === "'") prefix = 'T* ';
@@ -492,75 +301,128 @@ function rewrite(op: Operation, plan: OpPlan, content: Uint8Array, codeWidth: 1 
     prefix = `${num(aw.value!)} Tw ${num(ac.value!)} Tc T* `;
   }
 
-  if (plan.drop.every(Boolean)) return `${prefix}[${num(advanceOnly(op.operands, plan))}] TJ`;
+  if (!insertions.length && plan.cover.every((c) => c >= 0)) return `${prefix}[${num(advanceOnly(op.operands, plan))}] TJ`;
 
-  // Part of the run survives: rebuild it glyph by glyph, which needs to know
-  // how many bytes each glyph's code takes.
+  // Rebuilt glyph by glyph, which needs to know how many bytes each glyph's
+  // code takes.
   if (!codeWidth) return null;
   const strings: Token[] = op.op === 'TJ' ? op.operands[0]?.items ?? [] : [op.operands[op.operands.length - 1]].filter(Boolean);
-  const elements: Array<{ bytes: number[] } | { adjust: number }> = [];
+  const pieces: Piece[] = [];
+  const pending = [...insertions].sort((a, b) => a.at - b.at);
+  const putInsertions = (glyphIndex: number) => {
+    while (pending.length && pending[0].at === glyphIndex) {
+      const insertion = pending.shift()!;
+      pieces.push(...insertion.pieces, { adjust: insertion.advance });
+    }
+  };
   let glyphIndex = 0;
   for (const tok of strings) {
     if (tok.kind === 'number') {
-      elements.push({ adjust: tok.value ?? 0 });
+      pieces.push({ adjust: tok.value ?? 0 });
       continue;
     }
     if (tok.kind !== 'string' && tok.kind !== 'hex') return null;
     const bytes = stringBytes(content, tok);
     if (bytes.length % codeWidth) return null;
     for (let i = 0; i < bytes.length; i += codeWidth) {
-      if (glyphIndex >= plan.drop.length) return null;
-      if (plan.drop[glyphIndex]) elements.push({ adjust: plan.adjust[glyphIndex] });
-      else elements.push({ bytes: bytes.slice(i, i + codeWidth) });
+      if (glyphIndex >= plan.cover.length) return null;
+      putInsertions(glyphIndex);
+      if (plan.cover[glyphIndex] >= 0) pieces.push({ adjust: plan.adjust[glyphIndex] });
+      else pieces.push({ bytes: bytes.slice(i, i + codeWidth) });
       glyphIndex++;
     }
   }
-  if (glyphIndex !== plan.drop.length) return null;
+  if (glyphIndex !== plan.cover.length || pending.length) return null;
+  return `${prefix}${assemble(pieces)}`;
+}
 
-  // Merge neighbours: consecutive codes into one string, adjustments into one number.
-  const parts: string[] = [];
+/** Pieces as operators: consecutive codes merged into one string, moves into
+ * one number, and a font switch closing the TJ array in progress. */
+function assemble(pieces: Piece[]): string {
+  const out: string[] = [];
+  let parts: string[] = [];
   let run: number[] = [];
   let adjust = 0;
-  let pendingAdjust = false;
   const flushRun = () => {
     if (run.length) parts.push(hex(run));
     run = [];
   };
   const flushAdjust = () => {
-    if (pendingAdjust && adjust !== 0) parts.push(num(adjust));
+    if (Math.abs(adjust) > 1e-6) parts.push(num(adjust));
     adjust = 0;
-    pendingAdjust = false;
   };
-  for (const el of elements) {
-    if ('bytes' in el) {
+  const flushArray = () => {
+    flushRun();
+    flushAdjust();
+    if (parts.length) out.push(`[${parts.join(' ')}] TJ`);
+    parts = [];
+  };
+  for (const piece of pieces) {
+    if ('bytes' in piece) {
       flushAdjust();
-      run.push(...el.bytes);
-    } else {
+      run.push(...piece.bytes);
+    } else if ('adjust' in piece) {
       flushRun();
-      adjust += el.adjust;
-      pendingAdjust = true;
+      adjust += piece.adjust;
+    } else {
+      flushArray();
+      out.push(piece.raw);
     }
   }
-  flushRun();
-  flushAdjust();
-  return `${prefix}[${parts.join(' ')}] TJ`;
+  flushArray();
+  return out.join(' ');
 }
 
 const TEXT_OPS = new Set(['Tj', 'TJ', "'", '"']);
 
-/** Bytes per character code for the font a Tf named, when that's knowable. */
-function codeWidthOf(page: PDFPage, fontName: string | null): 1 | 2 | null {
-  if (!fontName) return null;
+/** The standard-14 fonts with WinAnsi glyph names (Symbol and ZapfDingbats have their own sets). */
+const STANDARD_14 = new Map<string, FontNames>(
+  Object.values(FontNames)
+    .filter((name) => name !== FontNames.Symbol && name !== FontNames.ZapfDingbats)
+    .map((name) => [name, name]),
+);
+
+/** What writing new characters in a font takes. */
+interface FontInfo {
+  /** Bytes per character code, when knowable. */
+  codeWidth: 1 | 2 | null;
+  /** For a simple font with no program in the file and the standard WinAnsi
+   * encoding — the viewer supplies the whole font, so any WinAnsi character
+   * can be written: its width in glyph units, or null when unknown. */
+  winAnsiWidth?: (code: number, glyphName: string) => number | null;
+}
+
+function fontInfo(page: PDFPage, fontName: string | null): FontInfo {
+  if (!fontName) return { codeWidth: null };
   try {
     const fonts = page.node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
     const font = fonts?.lookup(PDFName.of(fontName), PDFDict);
-    if (!font) return null;
+    if (!font) return { codeWidth: null };
     const subtype = font.lookup(PDFName.of('Subtype'));
-    if (subtype !== PDFName.of('Type0')) return 1;
-    const encoding = font.lookup(PDFName.of('Encoding'));
-    return encoding === PDFName.of('Identity-H') || encoding === PDFName.of('Identity-V') ? 2 : null;
+    if (subtype === PDFName.of('Type0')) {
+      const encoding = font.lookup(PDFName.of('Encoding'));
+      return { codeWidth: encoding === PDFName.of('Identity-H') || encoding === PDFName.of('Identity-V') ? 2 : null };
+    }
+    const descriptor = font.lookup(PDFName.of('FontDescriptor'));
+    const embedded = descriptor instanceof PDFDict && ['FontFile', 'FontFile2', 'FontFile3'].some((key) => descriptor.has(PDFName.of(key)));
+    if (subtype === PDFName.of('Type3') || embedded || font.lookup(PDFName.of('Encoding')) !== PDFName.of('WinAnsiEncoding')) return { codeWidth: 1 };
+    const first = font.lookup(PDFName.of('FirstChar'));
+    const widths = font.lookup(PDFName.of('Widths'));
+    const base = font.lookup(PDFName.of('BaseFont'));
+    const standard = base instanceof PDFName ? STANDARD_14.get(base.decodeText()) : undefined;
+    return {
+      codeWidth: 1,
+      winAnsiWidth: (code, glyphName) => {
+        if (widths instanceof PDFArray && first instanceof PDFNumber) {
+          const width = widths.lookup(code - first.asNumber());
+          if (width instanceof PDFNumber) return width.asNumber();
+        }
+        const width = standard ? StandardFontMetrics.load(standard).getWidthOfGlyph(glyphName) : undefined;
+        return typeof width === 'number' ? width : null;
+      },
+    };
   } catch {
-    return null;
+    return { codeWidth: null };
   }
 }
 
@@ -595,57 +457,256 @@ function readContents(page: PDFPage): Uint8Array | null {
   return out;
 }
 
+/** New text to write in place of the glyphs under one cover. */
+export interface InPlaceText {
+  /** Index of the cover whose run it replaces. */
+  cover: number;
+  text: string;
+  /** Fonts, in the look of the run's substitute family, for characters the
+   * run's own font doesn't have (see fonts.ts's `segments`). */
+  fallback: (text: string) => Promise<Array<{ text: string; font: PDFFont }>>;
+  /** Set when the text no longer sits exactly where its run did — moved,
+   * resized, or broken into lines: it's then drawn there, line by line, with
+   * the run's own font and text state, scaled by `scale`. Each line's
+   * baseline origin is in the page's user space. */
+  place?: { lines: Array<{ text: string; x: number; y: number }>; scale: number };
+}
+
+export interface RemovalResult {
+  /** Covers whose original glyphs are all gone from the page content. */
+  clean: Set<number>;
+  /** Covers whose new text was written in place. */
+  inserted: Set<number>;
+}
+
+/** A font as a Tf operator selected it: its resource name token and size, as written. */
+interface TfFont {
+  token: string;
+  name: string;
+  size: string;
+}
+
 /**
- * Deletes, from `outPage` (a freshly copied source page, before anything else
- * is drawn on it), the text that sits under `covers`. Returns whether every
- * covered glyph could be removed — false means some original text is still
- * in the file (the page was left as it was, or a run had to be kept whole).
+ * Lays out new text for the spot where a run started, inside the operator
+ * that showed it: codes in that run's own font for every character it has, a
+ * switch to a fallback font and back for the rest. A missing space becomes a
+ * plain move — many PDFs space words that way and carry no space glyph.
  */
-export async function removeCoveredText(pdfPage: PDFPageProxy, outPage: PDFPage, context: PDFContext, covers: Rect[]): Promise<boolean> {
-  if (!covers.length) return true;
-  const plan = await planPage(pdfPage, covers);
-  if (!plan.some((p) => p && p.drop.some(Boolean))) return true;
+async function layoutInsertion(
+  text: string,
+  op: OpPlan,
+  known: Map<string, GlyphInfo> | undefined,
+  info: FontInfo,
+  font: TfFont,
+  page: PDFPage,
+  fallback: InPlaceText['fallback'],
+): Promise<{ pieces: Piece[]; advance: number } | null> {
+  const { codeWidth } = info;
+  if (!codeWidth || op.fontDirection < 0) return null;
+  // Tc (and Tw, for a one-byte space) in TJ units.
+  const spacing = (isSpace: boolean) => (((isSpace ? op.wordSpacing : 0) + op.charSpacing) * 1000) / op.fontSize;
+  const pieces: Piece[] = [];
+  let advance = 0;
+  let missing = '';
+  const resources = new Map<PDFFont, string>();
 
-  const content = readContents(outPage);
-  if (!content) return false;
-  const ops = parse(content);
+  const flushMissing = async () => {
+    if (!missing) return;
+    for (const segment of await fallback(missing)) {
+      let resource = resources.get(segment.font);
+      if (!resource) {
+        resource = page.node.newFontDictionary(segment.font.name, segment.font.ref).asString();
+        resources.set(segment.font, resource);
+      }
+      const encoded = segment.font.encodeText(segment.text).toString();
+      pieces.push({ raw: `${resource} ${font.size} Tf ${encoded} Tj ${font.token} ${font.size} Tf` });
+      advance += segment.font.widthOfTextAtSize(segment.text, 1000) + [...segment.text].length * spacing(false);
+    }
+    missing = '';
+  };
 
-  const textOps = ops.filter((o) => TEXT_OPS.has(o.op));
-  if (textOps.length !== plan.length) return false;
-
-  let complete = true;
-  let fontName: string | null = null;
-  const fontStack: Array<string | null> = [];
-  let textIndex = 0;
-  const pieces: string[] = [];
-  let cursor = 0;
-
-  for (const op of ops) {
-    if (op.op === 'q') fontStack.push(fontName);
-    else if (op.op === 'Q') fontName = fontStack.pop() ?? fontName;
-    else if (op.op === 'Tf') fontName = op.operands[0]?.kind === 'name' ? op.operands[0].name ?? null : fontName;
-    if (!TEXT_OPS.has(op.op)) continue;
-
-    const opPlan = plan[textIndex++];
-    if (!opPlan || !opPlan.drop.some(Boolean)) continue;
-    const replacement = rewrite(op, opPlan, content, codeWidthOf(outPage, fontName));
-    if (replacement === null) {
-      complete = false;
+  for (const ch of text) {
+    const glyph = known?.get(ch);
+    if (glyph) {
+      await flushMissing();
+      pieces.push({ bytes: codeBytes(glyph.code, codeWidth) });
+      advance += glyph.width * op.fontMatrix0 * 1000 + spacing(glyph.isSpace);
       continue;
     }
-    pieces.push(latin1(content.subarray(cursor, op.start)), replacement);
-    cursor = op.end;
+    const codePoint = ch.codePointAt(0)!;
+    if (info.winAnsiWidth && Encodings.WinAnsi.canEncodeUnicodeCodePoint(codePoint)) {
+      const { code, name } = Encodings.WinAnsi.encodeUnicodeCodePoint(codePoint);
+      const width = info.winAnsiWidth(code, name);
+      if (width !== null) {
+        await flushMissing();
+        pieces.push({ bytes: [code] });
+        advance += width + spacing(code === 32);
+        continue;
+      }
+    }
+    if (ch === ' ') {
+      await flushMissing();
+      const [space] = await fallback(' ');
+      const gap = (space ? space.font.widthOfTextAtSize(' ', 1000) : 250) + spacing(true);
+      pieces.push({ adjust: -gap });
+      advance += gap;
+      continue;
+    }
+    missing += ch;
   }
-  if (cursor === 0) return complete;
-  pieces.push(latin1(content.subarray(cursor)));
+  await flushMissing();
+  return { pieces, advance };
+}
 
-  const source = pieces.join('');
+const rgb = (color: string) => {
+  const n = parseInt(color.slice(1), 16);
+  return `${num(((n >> 16) & 255) / 255)} ${num(((n >> 8) & 255) / 255)} ${num((n & 255) / 255)}`;
+};
+
+/**
+ * Operators that draw `place`'s lines with a run's own font and text state —
+ * its spacing, scaling, rise, render mode and colors, and its text matrix's
+ * turn and scale (times `place.scale`), each line from its baseline origin.
+ * Null when the run's look can't be carried over (outlined text, whose line
+ * width belongs to a transform this doesn't reproduce).
+ */
+async function drawAt(
+  place: NonNullable<InPlaceText['place']>,
+  op: OpPlan,
+  known: Map<string, GlyphInfo> | undefined,
+  info: FontInfo,
+  font: TfFont,
+  page: PDFPage,
+  fallback: InPlaceText['fallback'],
+): Promise<string | null> {
+  if (![0, 4].includes(op.renderMode) || !op.fillColor) return null;
+  const [a, b, c, d] = op.linear.map((v) => v * place.scale);
+  const state = `${font.token} ${font.size} Tf ${num(op.charSpacing)} Tc ${num(op.wordSpacing)} Tw ${num(op.hScale * 100)} Tz ${num(op.rise)} Ts ${op.renderMode} Tr ${rgb(op.fillColor)} rg`;
+  const lines: string[] = [];
+  for (const line of place.lines) {
+    if (!line.text.trim()) continue;
+    const laid = await layoutInsertion(line.text, op, known, info, font, page, fallback);
+    if (!laid) return null;
+    lines.push(`q ${num(a)} ${num(b)} ${num(c)} ${num(d)} ${num(line.x)} ${num(line.y)} cm BT ${state} ${assemble(laid.pieces)} ET Q`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Rewrites `outPage` (a freshly copied source page, before anything else is
+ * drawn on it): deletes the text under `covers` and writes each of `inPlace`
+ * where its run was. Says which covers are clean (nothing of the original
+ * left) and which got their text in place; the caller blanks and draws the
+ * rest the usual way.
+ */
+export async function removeCoveredText(
+  pdfPage: PDFPageProxy,
+  outPage: PDFPage,
+  context: PDFContext,
+  covers: Rect[],
+  inPlace: InPlaceText[] = [],
+): Promise<RemovalResult> {
+  const result: RemovalResult = { clean: new Set(), inserted: new Set() };
+  if (!covers.length) return result;
+  const plan = await planPage(pdfPage, covers);
+  // A cover with no glyph under it covers either nothing or text this can't
+  // reach (inside a form XObject) — it isn't counted as clean either way.
+  const reached = covers.map((_, k) => plan.ops.some((op) => op?.cover.includes(k)));
+  if (!reached.some(Boolean)) return result;
+
+  const content = readContents(outPage);
+  if (!content) return result;
+  const ops = parse(content);
+  if (ops.filter((o) => TEXT_OPS.has(o.op)).length !== plan.ops.length) return result;
+
+  // The font each text operator draws with, as its Tf selected it.
+  const fonts: Array<TfFont | null> = [];
+  let current: TfFont | null = null;
+  const saved: Array<TfFont | null> = [];
+  for (const op of ops) {
+    if (op.op === 'q') saved.push(current);
+    else if (op.op === 'Q') {
+      if (saved.length) current = saved.pop()!;
+    } else if (op.op === 'Tf' && op.operands[0]?.kind === 'name' && op.operands[1]) {
+      const [name, size] = op.operands;
+      current = { token: latin1(content.subarray(name.start, name.end)), name: name.name ?? '', size: latin1(content.subarray(size.start, size.end)) };
+    } else if (TEXT_OPS.has(op.op)) {
+      fonts.push(current);
+    }
+  }
+
+  // Each new text goes right before the first glyph of the run it replaces —
+  // or, once moved or resized, is drawn at its new spot in that run's font.
+  const laidOut: Array<Insertion & { opIndex: number }> = [];
+  const drawn: string[] = [];
+  const placed = new Set<number>();
+  for (const entry of inPlace) {
+    const opIndex = plan.ops.findIndex((op) => op?.cover.includes(entry.cover));
+    const op = opIndex >= 0 ? plan.ops[opIndex] : null;
+    const font = opIndex >= 0 ? fonts[opIndex] : null;
+    // Invisible text (an OCR layer over a scan) isn't what people see.
+    if (!op || !font || op.renderMode === 3 || op.renderMode === 7) continue;
+    const known = plan.glyphs.get(op.fontKey);
+    const info = fontInfo(outPage, font.name);
+    if (entry.place) {
+      const operators = await drawAt(entry.place, op, known, info, font, outPage, entry.fallback);
+      if (operators) {
+        drawn.push(operators);
+        placed.add(entry.cover);
+      }
+      continue;
+    }
+    const laid = await layoutInsertion(entry.text, op, known, info, font, outPage, entry.fallback);
+    if (laid) laidOut.push({ opIndex, at: op.cover.indexOf(entry.cover), cover: entry.cover, ...laid });
+  }
+
+  // An operator that can't be rewritten keeps its text: the covers with
+  // glyphs in it aren't clean, and any of those getting new text in place
+  // get it the usual way instead (so it isn't drawn over the old one).
+  const attempt = (allowed: Set<number>) => {
+    const failed = new Set<number>();
+    const pieces: string[] = [];
+    let cursor = 0;
+    let textIndex = 0;
+    for (const op of ops) {
+      if (!TEXT_OPS.has(op.op)) continue;
+      const index = textIndex++;
+      const opPlan = plan.ops[index];
+      if (!opPlan || !opPlan.cover.some((c) => c >= 0)) continue;
+      const here = laidOut.filter((insertion) => insertion.opIndex === index && allowed.has(insertion.cover));
+      const replacement = rewrite(op, opPlan, content, fontInfo(outPage, fonts[index]?.name ?? null).codeWidth, here);
+      if (replacement === null) {
+        for (const c of opPlan.cover) if (c >= 0) failed.add(c);
+        continue;
+      }
+      pieces.push(latin1(content.subarray(cursor, op.start)), replacement);
+      cursor = op.end;
+    }
+    pieces.push(latin1(content.subarray(cursor)));
+    return { failed, source: cursor === 0 ? null : pieces.join('') };
+  };
+  let allowed = new Set(laidOut.map((insertion) => insertion.cover));
+  let outcome = attempt(allowed);
+  if ([...allowed].some((c) => outcome.failed.has(c))) {
+    allowed = new Set([...allowed].filter((c) => !outcome.failed.has(c)));
+    outcome = attempt(allowed);
+  }
+  covers.forEach((_, k) => {
+    if (reached[k] && !outcome.failed.has(k)) result.clean.add(k);
+  });
+  result.inserted = new Set([...allowed, ...placed]);
+  if (outcome.source === null && !drawn.length) return result;
+
+  // Text drawn at a new spot comes after everything else, from the page's
+  // initial graphics state — the original content is wrapped so nothing it
+  // leaves set (a transform, a clip) carries over.
+  let source = outcome.source ?? latin1(content);
+  if (drawn.length) source = `q\n${source}\nQ\n${drawn.join('\n')}\n`;
   const bytes = new Uint8Array(source.length);
   for (let i = 0; i < source.length; i++) bytes[i] = source.charCodeAt(i) & 255;
-
   // The replaced stream, original text and all, is left for `buildPdf`'s
   // final sweep of unreachable objects to drop — deleting it here would also
   // break another page that happens to share it.
   outPage.node.set(PDFName.of('Contents'), context.register(context.flateStream(bytes)));
-  return complete;
+  return result;
 }

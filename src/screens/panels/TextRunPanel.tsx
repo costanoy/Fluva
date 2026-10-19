@@ -6,8 +6,10 @@ import type { Rect } from '../../pdf/model';
 import { t } from '../../i18n/translations';
 
 /**
- * Editor for one original text run. PDF text cannot be mutated in place, so
- * confirming here paints over the original and draws the new text on top.
+ * Editor for one original text run. Confirming turns the draft into an
+ * overlay paired with a cover over the original; the export then removes the
+ * original text and writes the new one with the run's own font, size, color
+ * and spacing (see textRemoval.ts).
  *
  * Every field here writes straight into the shared draft, which the canvas
  * renders live (see TextRunPreview) — the page updates as you type, and

@@ -18,7 +18,8 @@ import type { CoverOverlay, DocumentState, ImageAsset, Overlay, WatermarkConfig,
 import { createFontSet, fontSupportsText } from './fonts';
 import { resolveOriginalFontBytes } from './textExtract';
 import { getPdfDoc, renderPageImage } from './render';
-import { removeCoveredText } from './textRemoval';
+import { removeCoveredText, type RemovalResult } from './textRemoval';
+import { inPlaceCover, runFontCover } from './replacement';
 import { displayRectToRaw, displayToRaw, hexToRgb, normalizeRotation, TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT, type Quarter } from './geometry';
 
 /** What `buildPdf` could not fully honor, for the caller to tell the user. */
@@ -31,6 +32,11 @@ export interface BuildReport {
    * they look the same, but their text can't be selected or searched. */
   protectedAsImages?: boolean;
 }
+
+/** Parsed sources, kept while their bytes are: the editor's page previews
+ * build one page at a time, and re-parsing a long PDF for each was most of
+ * what one took. A source is only ever read here, never changed. */
+const parsedSources = new WeakMap<Uint8Array, Promise<PDFDocument>>();
 
 /** Resolution a protected PDF's pages are redrawn at (see `buildPdf`). */
 const PROTECTED_PAGE_DPI = 200;
@@ -89,7 +95,12 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport): Promis
     if (cached) return cached;
     const source = doc.sources[sourceId];
     if (!source || source.kind !== 'pdf') return null;
-    const loaded = await PDFDocument.load(source.bytes, { ignoreEncryption: true });
+    let parsed = parsedSources.get(source.bytes);
+    if (!parsed) {
+      parsed = PDFDocument.load(source.bytes, { ignoreEncryption: true });
+      parsedSources.set(source.bytes, parsed);
+    }
+    const loaded = await parsed;
     sourceDocs.set(sourceId, loaded);
     return loaded;
   };
@@ -117,6 +128,8 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport): Promis
      * from there, and a box that doesn't start at 0,0 is common in print
      * files (bleed) and cropped scans. */
     let origin = { x: 0, y: 0 };
+    /** Overlays already taken care of in the page's own content (see below). */
+    const handled = new Set<string>();
 
     if (source && source.kind === 'pdf' && (await loadSource(source.id))?.isEncrypted) {
       // pdf-lib can't decrypt a PDF its author protected, so a copied page
@@ -143,21 +156,46 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport): Promis
       origin = { x: box.x, y: box.y };
 
       // Replaced text has to leave the file, not just disappear under its
-      // cover — this must run before anything else is drawn on the page.
+      // cover — this must run before anything else is drawn on the page. A
+      // replacement whose only change is its text is written straight back
+      // into the run (same font, size, color, spacing as the rest of the
+      // line); a cover whose original text is gone isn't drawn at all, so
+      // whatever was behind the text — a highlight, a table rule — stays.
       const covers = page.overlays.filter((o): o is CoverOverlay => o.kind === 'cover');
       if (covers.length) {
-        let removed = false;
+        const toUser = (dx: number, dy: number) => {
+          const p = displayToRaw(sourceRotation, rawW, rawH, dx, dy);
+          return { x: p.x + origin.x, y: p.y + origin.y };
+        };
+        const inPlace = page.overlays.flatMap((o) => {
+          const cover = o.kind === 'text' ? runFontCover(o, covers) : -1;
+          if (o.kind !== 'text' || cover < 0) return [];
+          const fallback = (text: string) => fonts.segments(o.fontKey, o.bold, o.italic, text);
+          if (inPlaceCover(o, covers) >= 0) return [{ cover, text: o.text, overlayId: o.id, fallback }];
+          // Moved, resized or broken into lines: drawn in the run's own font
+          // where it now sits, line by line.
+          const lines = o.text.split('\n').map((line, i) => ({
+            text: line.replace(/\r/g, ''),
+            ...toUser(o.x, o.y - o.size * (TEXT_BASELINE_RATIO + i * TEXT_LINE_HEIGHT)),
+          }));
+          return [{ cover, text: o.text, overlayId: o.id, fallback, place: { lines, scale: o.size / (o.replaces?.size || o.size) } }];
+        });
+        let result: RemovalResult = { clean: new Set(), inserted: new Set() };
         try {
           const pdfPage = await (await getPdfDoc(source)).getPage(page.sourceIndex + 1);
           try {
-            removed = await removeCoveredText(pdfPage, outPage, out.context, covers);
+            result = await removeCoveredText(pdfPage, outPage, out.context, covers, inPlace);
           } finally {
             pdfPage.cleanup();
           }
         } catch (err) {
           console.warn('[Fluva] could not strip replaced text', err);
         }
-        if (!removed && report) report.replacedTextKept = true;
+        covers.forEach((cover, index) => {
+          if (result.clean.has(index) || result.inserted.has(index)) handled.add(cover.id);
+        });
+        for (const entry of inPlace) if (result.inserted.has(entry.cover)) handled.add(entry.overlayId);
+        if (result.clean.size < covers.length && report) report.replacedTextKept = true;
       }
     } else if (source && source.kind === 'image') {
       // An image page is a page sized to the image, with the image drawn to fill it.
@@ -182,7 +220,7 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport): Promis
       return { x: p.x + origin.x, y: p.y + origin.y };
     };
 
-    const overlays = withWatermark(doc, page);
+    const overlays = withWatermark(doc, page).filter((overlay) => !handled.has(overlay.id));
     for (const overlay of overlays) {
       await drawOverlay(outPage, overlay, sourceRotation, toRaw, fonts, embedAsset, page, resolveFontBytes);
     }
@@ -363,10 +401,10 @@ function withWatermark(doc: DocumentState, page: WorkPage): Overlay[] {
   if (!wm.allPages && !isTarget) return page.overlays;
   const built = buildWatermarkOverlay(wm, page, doc.assets);
   if (!built) return page.overlays;
-  // Covers exist only to blank out stale original PDF text, not to block the
-  // watermark — inserting it right after them (matching the preview) lets it
-  // show straight through instead of leaving a plain white rectangle over it,
-  // while still sitting below the actual replacement content drawn on top.
+  // Covers only blank out original PDF text that couldn't be removed, never
+  // the watermark — inserting it right after them (matching the preview)
+  // lets it show straight through instead of leaving a plain white rectangle
+  // over it, while still sitting below the replacement content drawn on top.
   const covers = page.overlays.filter((o) => o.kind === 'cover');
   const rest = page.overlays.filter((o) => o.kind !== 'cover');
   return [...covers, built, ...rest];

@@ -7,6 +7,7 @@ import {
   type Overlay,
   type Rect,
   type SourceDoc,
+  type TextOverlay,
   type WatermarkConfig,
   type WorkPage,
 } from '../pdf/model';
@@ -229,6 +230,7 @@ export function useFluvaStore() {
       italic: boolean,
       colors: SampledColors = { color: '#2C2C2A', backgroundColor: '#FFFFFF' },
       originalFontKey?: string,
+      original?: TextItem,
     ) => {
       const originalBaseline = bounds.y + bounds.height / 6;
       const cover: Overlay = {
@@ -240,7 +242,7 @@ export function useFluvaStore() {
         height: bounds.height + 2,
         color: colors.backgroundColor,
       };
-      const replacement: Overlay = {
+      const replacement: TextOverlay = {
         id: newId('ov'),
         kind: 'text',
         x: bounds.x,
@@ -254,6 +256,22 @@ export function useFluvaStore() {
         color: colors.color,
         rotation: 0,
       };
+      // How the overlay looks when only the text changed — while it still
+      // does, the export writes the new text back into the run itself.
+      if (original) {
+        const originalSize = Math.round(original.fontSize * 10) / 10;
+        replacement.replaces = {
+          coverId: cover.id,
+          x: bounds.x,
+          y: originalBaseline + originalSize * TEXT_BASELINE_RATIO,
+          fontKey: original.substituteKey,
+          originalFontKey: original.originalFontKey,
+          size: originalSize,
+          bold: original.bold,
+          italic: original.italic,
+          color: colors.color,
+        };
+      }
       return { cover, replacement };
     };
 
@@ -304,7 +322,7 @@ export function useFluvaStore() {
           const idx = cur.doc.pages.findIndex((p) => p.id === pageId);
           if (idx === -1) return null; // the page was deleted while colors were sampling
           const targetPage = cur.doc.pages[idx];
-          const { cover, replacement } = buildTextReplacementOverlays(bounds, draft.text, draft.fontKey, draft.size, draft.bold, draft.italic, colors, originalFontKey);
+          const { cover, replacement } = buildTextReplacementOverlays(bounds, draft.text, draft.fontKey, draft.size, draft.bold, draft.italic, colors, originalFontKey, target);
           const nextPage = { ...targetPage, overlays: [...targetPage.overlays, cover, replacement] };
           const pages = cur.doc.pages.map((p, i) => (i === idx ? nextPage : p));
           return { doc: { ...cur.doc, pages } };
@@ -756,13 +774,17 @@ export function useFluvaStore() {
         const page = currentPage(st);
         if (!page) return;
         const pageId = page.id;
+        // The run being replaced, when this is the one open in the panel.
+        const target = st.textRunTarget;
+        const original =
+          target && target.x === bounds.x && target.y === bounds.y && target.width === bounds.width && target.height === bounds.height ? target : undefined;
         withBusy(t('store.applying'), async () => {
           const [colors] = await sampleRunColors(st.doc, page, [bounds]);
           mutate((cur) => {
             const idx = cur.doc.pages.findIndex((p) => p.id === pageId);
             if (idx === -1) return null;
             const targetPage = cur.doc.pages[idx];
-            const { cover, replacement } = buildTextReplacementOverlays(bounds, text, fontKey, size, bold, italic, colors, originalFontKey);
+            const { cover, replacement } = buildTextReplacementOverlays(bounds, text, fontKey, size, bold, italic, colors, originalFontKey, original);
             replacement.x += offset.dx;
             replacement.y += offset.dy;
             const nextPage = { ...targetPage, overlays: [...targetPage.overlays, cover, replacement] };

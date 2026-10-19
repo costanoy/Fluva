@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { useApp } from '../state/AppContext';
 import { PageView } from '../components/PageView';
 import { OverlayLayer } from '../components/OverlayLayer';
@@ -8,6 +8,7 @@ import { TextRunPreview } from '../components/TextRunPreview';
 import { SplitPreview } from '../components/SplitPreview';
 import { ReorderPreview } from '../components/ReorderPreview';
 import { displaySize } from '../pdf/model';
+import { pageEdits } from '../pdf/replacement';
 import '../styles/canvas.css';
 
 /** Leaves room around the page so the drop shadow and crop handles are not clipped. */
@@ -37,6 +38,22 @@ export function EditorCanvas() {
 
   const page = state.doc.pages[state.activePageIndex];
   const zoom = state.zoom;
+
+  // Text replacements are drawn into the page bitmap itself, by pdf.js, the
+  // way the export writes them (see pageEdits) — so edited text shows in the
+  // document's own font, rasterized like its neighbours. The overlay layer
+  // leaves to the canvas whatever the canvas already shows; the overlay being
+  // edited stays live until it's left.
+  const edits = useMemo(() => (page ? pageEdits(page, state.selectedOverlayId) : []), [page, state.selectedOverlayId]);
+  const editsSignature = useMemo(
+    () =>
+      JSON.stringify(
+        edits.map((o) => (o.kind === 'text' ? [o.id, o.text, o.x, o.y, o.size, o.color] : o.kind === 'cover' ? [o.id, o.x, o.y, o.width, o.height] : [o.id])),
+      ),
+    [edits],
+  );
+  const [shownEdits, setShownEdits] = useState<string | null>(null);
+  const baked = useMemo(() => new Set(shownEdits === editsSignature ? edits.map((o) => o.id) : []), [shownEdits, editsSignature, edits]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -169,6 +186,8 @@ export function EditorCanvas() {
           source={page.sourceId ? state.doc.sources[page.sourceId] : undefined}
           scale={safeScale}
           className="doc-page"
+          edits={edits.length ? { doc: state.doc, overlays: edits, signature: editsSignature } : undefined}
+          onRendered={setShownEdits}
         >
           {/* Covers exist only to blank out stale original PDF text, not to
               block the watermark — painting them below it (and everything
@@ -184,6 +203,7 @@ export function EditorCanvas() {
             onLiveChange={(id, patch) => actions.updateOverlay(id, patch, false)}
             onCommit={(id, patch) => actions.updateOverlay(id, patch, true)}
             interactive={!state.toolMode}
+            baked={baked}
           />
           <WatermarkPreview
             page={page}
@@ -202,6 +222,7 @@ export function EditorCanvas() {
             onLiveChange={(id, patch) => actions.updateOverlay(id, patch, false)}
             onCommit={(id, patch) => actions.updateOverlay(id, patch, true)}
             interactive={!state.toolMode}
+            baked={baked}
           />
           {state.toolMode === null && state.doc.kind === 'pdf' && <TextRunLayer page={page} scale={safeScale} />}
           {/* Keyed by the target run so switching to a different run remounts

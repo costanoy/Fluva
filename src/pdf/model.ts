@@ -54,6 +54,25 @@ export interface TextOverlay {
   italic: boolean;
   color: string;
   rotation: number;
+  /** Set on the text that replaces one of the PDF's own runs: that run's
+   * cover, and how this overlay looked when only the text had changed.
+   * While it still looks exactly like that, the export writes the new text
+   * back into the original run itself — same font program, size, color and
+   * spacing as the rest of the line (see textRemoval.ts). Moved, restyled or
+   * turned, it's drawn as an overlay instead. */
+  replaces?: ReplacedRun;
+}
+
+export interface ReplacedRun {
+  coverId: string;
+  x: number;
+  y: number;
+  fontKey: string;
+  originalFontKey?: string;
+  size: number;
+  bold: boolean;
+  italic: boolean;
+  color: string;
 }
 
 export interface ImageOverlay {
