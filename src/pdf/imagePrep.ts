@@ -33,7 +33,10 @@ export function sniffImageMime(bytes: Uint8Array): 'image/png' | 'image/jpeg' | 
 }
 
 export async function prepareImage(input: Uint8Array, declaredMime: string): Promise<PreparedImage> {
-  const mime = sniffImageMime(input) ?? (declaredMime === 'image/png' ? 'image/png' : 'image/jpeg');
+  const sniffed = sniffImageMime(input);
+  // WebP, GIF, BMP, AVIF: neither a PDF nor most of this app reads them.
+  if (!sniffed && declaredMime !== 'image/png' && declaredMime !== 'image/jpeg') return transcode(input, declaredMime);
+  const mime = sniffed ?? (declaredMime === 'image/png' ? 'image/png' : 'image/jpeg');
 
   if (mime === 'image/png') {
     const bytes = stripPngMetadata(input) ?? input;
@@ -188,6 +191,66 @@ async function redrawUpright(bytes: Uint8Array, orientation: number): Promise<Pr
     canvas.width = canvas.height = 0;
     if (!blob) throw new Error('encode failed');
     return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: 'image/jpeg', width: turned ? h : w, height: turned ? w : h };
+  } finally {
+    bitmap.close();
+  }
+}
+
+/* ------------------------------------------------------- other formats */
+
+/** Whether a WebP is the lossless kind (a screenshot, a logo): its pixels
+ * are exact, and turning them into a JPEG would smudge them. */
+function losslessWebp(s: Uint8Array): boolean {
+  if (!(startsWith(s, 'RIFF') && s[8] === 0x57 && s[9] === 0x45 && s[10] === 0x42 && s[11] === 0x50)) return false;
+  for (let p = 12; p + 8 <= s.length; ) {
+    const tag = String.fromCharCode(s[p], s[p + 1], s[p + 2], s[p + 3]);
+    if (tag === 'VP8L') return true;
+    if (tag === 'VP8 ') return false;
+    const size = s[p + 4] | (s[p + 5] << 8) | (s[p + 6] << 16) | (s[p + 7] << 24);
+    p += 8 + size + (size & 1);
+  }
+  return false;
+}
+
+/**
+ * An image in a format the browser reads but a PDF can't hold (WebP, GIF,
+ * BMP, AVIF), read by the browser — upright, its metadata left behind — and
+ * written as a PNG when its pixels must stay exact (see-through parts, a GIF
+ * or BMP, a lossless WebP) or else as a JPEG.
+ */
+async function transcode(input: Uint8Array, mime: string): Promise<PreparedImage> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(new Blob([input.slice().buffer as ArrayBuffer], { type: mime }));
+  } catch {
+    throw new Error(t('loader.imageReadError'));
+  }
+  try {
+    // Same ceiling as a turned photo (see redrawUpright).
+    const shrink = Math.min(1, Math.sqrt(16_000_000 / (bitmap.width * bitmap.height)));
+    const width = Math.max(1, Math.round(bitmap.width * shrink));
+    const height = Math.max(1, Math.round(bitmap.height * shrink));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) throw new Error(t('loader.imageReadError'));
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    let exact = mime === 'image/gif' || mime === 'image/bmp' || losslessWebp(input);
+    if (!exact) {
+      const data = ctx.getImageData(0, 0, width, height).data;
+      for (let i = 3; i < data.length; i += 4) {
+        if (data[i] !== 255) {
+          exact = true;
+          break;
+        }
+      }
+    }
+    const out: 'image/png' | 'image/jpeg' = exact ? 'image/png' : 'image/jpeg';
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, out, out === 'image/jpeg' ? 0.92 : undefined));
+    canvas.width = canvas.height = 0;
+    if (!blob) throw new Error(t('loader.imageReadError'));
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: out, width, height };
   } finally {
     bitmap.close();
   }

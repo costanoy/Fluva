@@ -1,17 +1,28 @@
 import { Document, HeadingLevel, ImageRun, Packer, Paragraph, TextRun } from 'docx';
 import { zipSync, strToU8 } from 'fflate';
-import type { DocumentState, WorkPage } from './model';
+import { isImagePage, type DocumentState, type WorkPage } from './model';
 import { buildPdf, type BuildReport } from './build';
-import { canvasToBlob, rasterizePages } from './render';
+import { canvasToBlob, imageExportScale } from './render';
+import { rasterizeDocument } from './rasterize';
 import { extractPageImages, extractPageText, groupIntoLines, lineRuns, type LineItem } from './textExtract';
 import { isCoveredRect, TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT } from './geometry';
 import { stripExtension } from './loader';
 import { t } from '../i18n/translations';
 
-export type ExportFormat = 'pdf' | 'png' | 'jpg' | 'docx';
+export type ExportFormat = 'pdf' | 'png' | 'jpg' | 'webp' | 'docx';
 
-/** Resolution used when turning pages into images. 150 DPI reads cleanly on screen and in print. */
-const IMAGE_EXPORT_DPI = 150;
+export type ImageFormat = 'png' | 'jpg' | 'webp';
+
+export const IMAGE_MIME: Record<ImageFormat, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' };
+
+/** Encoder quality per format: PNG is lossless and takes none. */
+export const IMAGE_QUALITY: Record<ImageFormat, number | undefined> = { png: undefined, jpg: 0.92, webp: 0.9 };
+
+/** Whether a page turned into an image keeps what's see-through in it: a
+ * photo does (in a PNG or WebP), a document page is paper. */
+export function keepsTransparency(doc: DocumentState, page: WorkPage | undefined, format: ImageFormat): boolean {
+  return format !== 'jpg' && isImagePage(doc, page);
+}
 
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -45,18 +56,17 @@ export async function exportAsPdf(doc: DocumentState, baseName: string): Promise
 export async function exportAsImages(
   doc: DocumentState,
   baseName: string,
-  format: 'png' | 'jpg',
+  format: ImageFormat,
   onProgress?: (done: number, total: number) => void,
 ) {
-  const baked = await buildPdf(doc);
-  const mime = format === 'png' ? 'image/png' : 'image/jpeg';
-  const quality = format === 'jpg' ? 0.92 : undefined;
+  const mime = IMAGE_MIME[format];
+  const quality = IMAGE_QUALITY[format];
   const pad = String(doc.pages.length).length;
   const files: Array<{ name: string; bytes: Uint8Array }> = [];
 
   // Each page is encoded as soon as it's drawn, so only one canvas is ever alive.
-  await rasterizePages(
-    baked,
+  await rasterizeDocument(
+    doc,
     (i) => imageExportScale(doc, doc.pages[i]),
     async (canvas, i, total) => {
       const blob = await canvasToBlob(canvas, mime, quality);
@@ -64,27 +74,18 @@ export async function exportAsImages(
       files.push({ name, bytes: new Uint8Array(await blob.arrayBuffer()) });
       onProgress?.(i + 1, total);
     },
+    (i) => keepsTransparency(doc, doc.pages[i], format),
   );
 
   if (files.length === 1) {
     downloadBytes(files[0].bytes, `${baseName}.${format}`, mime);
     return;
   }
-  // PNG and JPEG are compressed already; deflating them again only costs time.
+  // PNG, JPEG and WebP are compressed already; deflating them again only costs time.
   zipFiles(files, `${baseName}_${format}.zip`, 0);
 }
 
-/**
- * Canvas pixels per point for turning a page into an image: a photo's page
- * (one point per pixel, see the loader) comes out at its own resolution, not
- * blown up twice over; a document page at 150 DPI, which reads cleanly on
- * screen and in print.
- */
-export function imageExportScale(doc: DocumentState, page: WorkPage | undefined): number {
-  const source = page?.sourceId ? doc.sources[page.sourceId] : undefined;
-  if (source?.kind === 'image' || (!source && doc.kind === 'image')) return 1;
-  return IMAGE_EXPORT_DPI / 72;
-}
+export { imageExportScale };
 
 /** Word renders images at 96 CSS px per inch, PDF space is 72 points per inch. */
 const DOCX_PX_PER_PT = 96 / 72;

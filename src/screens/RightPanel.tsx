@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { Image as ImageIcon, Pipette, RotateCw, Square, Trash2, Type } from 'lucide-react';
+import { ArrowUpRight, EyeOff, Image as ImageIcon, PenLine, Pipette, RotateCw, Square, Trash2, Type } from 'lucide-react';
 import { Button } from '../components/Button';
 import { useApp } from '../state/AppContext';
+import { isImagePage } from '../pdf/model';
 import { OverlayPanel } from './panels/OverlayPanel';
 import { TextRunPanel } from './panels/TextRunPanel';
 import { CompressPanel, MergePanel, ReorderPanel, WatermarkPanel } from './panels/ToolPanels';
 import { SplitPanel } from './panels/SplitPanel';
+import { AdjustPanel, CropPanel, DrawPanel, ResizePanel } from './panels/ImagePanels';
 import { t } from '../i18n/translations';
 import '../styles/panel.css';
 
@@ -52,6 +54,10 @@ export function RightPanel() {
       {state.toolMode === 'compress' && <CompressPanel />}
       {state.toolMode === 'watermark' && <WatermarkPanel />}
       {state.toolMode === 'reorder' && <ReorderPanel />}
+      {state.toolMode === 'crop' && <CropPanel />}
+      {state.toolMode === 'adjust' && <AdjustPanel />}
+      {state.toolMode === 'resize' && <ResizePanel />}
+      {state.toolMode === 'draw' && <DrawPanel />}
 
       {!state.toolMode && (
         <>
@@ -101,6 +107,23 @@ export function RightPanel() {
                 <Square size={19} strokeWidth={2.75} />
                 {t('panel.addShape')}
               </Button>
+
+              <Button block style={panelBtn} onClick={actions.addLine}>
+                <ArrowUpRight size={19} strokeWidth={2.75} />
+                {t('panel.addArrow')}
+              </Button>
+
+              <Button block style={panelBtn} onClick={() => actions.setTool('draw')}>
+                <PenLine size={19} strokeWidth={2.75} />
+                {t('panel.draw')}
+              </Button>
+
+              {isImagePage(state.doc, page) && (
+                <Button block style={panelBtn} onClick={actions.addRedaction}>
+                  <EyeOff size={19} strokeWidth={2.75} />
+                  {t('panel.redact')}
+                </Button>
+              )}
 
               <div className="panel-divider" />
 

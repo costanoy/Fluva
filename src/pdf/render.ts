@@ -1,6 +1,7 @@
 import { openWithPdfJs, type OpenedPdf, type PDFDocumentProxy, type PDFPageProxy } from './pdfjs';
 import type { DocumentState, Overlay, Rect, SourceDoc, WorkPage } from './model';
 import { MAX_CANVAS_PIXELS } from './geometry';
+import { applyRedactions, baseKey, changesPixels, paintPhoto, redactionsOf, type Frame } from './imageEdit';
 import { t } from '../i18n/translations';
 
 /** pdf.js documents are expensive to open, so keep one live proxy per source. */
@@ -42,6 +43,101 @@ export function releaseSource(sourceId: string) {
 export function releaseAll() {
   for (const id of Array.from(docCache.keys())) releaseSource(id);
   for (const id of Array.from(bitmapCache.keys())) releaseSource(id);
+  editedPhotos.clear();
+}
+
+/** The most pixels an edited photo is worked on at in the live view, and
+ * while a slider is still moving: drawn bigger, it's scaled up — the full
+ * render follows once the slider stops (see PageView). */
+const VIEW_EDIT_PIXELS = 6_000_000;
+const FAST_EDIT_PIXELS = 1_200_000;
+
+/** Photos already toned for the live view, by source, size and edits — a
+ * blurred area dragged around redraws only itself, not the whole photo. */
+const editedPhotos = new Map<string, HTMLCanvasElement>();
+const EDITED_PHOTOS_KEPT = 4;
+
+function editedPhoto(source: SourceDoc, page: WorkPage, bitmap: ImageBitmap, width: number, height: number): HTMLCanvasElement {
+  const key = `${source.id}|${width}x${height}|${baseKey(page)}`;
+  const hit = editedPhotos.get(key);
+  if (hit) {
+    editedPhotos.delete(key);
+    editedPhotos.set(key, hit);
+    return hit;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  paintPhoto(canvas.getContext('2d', { willReadFrequently: true })!, bitmap, page, fullFrame(page, width));
+  editedPhotos.set(key, canvas);
+  while (editedPhotos.size > EDITED_PHOTOS_KEPT) {
+    const oldest = editedPhotos.keys().next().value as string;
+    const dropped = editedPhotos.get(oldest);
+    if (dropped) dropped.width = dropped.height = 0;
+    editedPhotos.delete(oldest);
+  }
+  return canvas;
+}
+
+const fullFrame = (page: WorkPage, width: number): Frame => ({ x: 0, y: 0, width: page.width, height: page.height, ppp: width / page.width });
+
+/**
+ * A photo page's own pixels for the exported file: the `frame` of the page,
+ * with every edit to the photo applied — its blurred or pixelated areas
+ * included, so what was under them is gone from the pixels.
+ */
+export async function renderPhoto(source: SourceDoc, page: WorkPage, frame: Frame): Promise<HTMLCanvasElement> {
+  const bitmap = await getImageBitmap(source);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(frame.width * frame.ppp));
+  canvas.height = Math.max(1, Math.round(frame.height * frame.ppp));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  paintPhoto(ctx, bitmap, page, frame);
+  applyRedactions(ctx, page, frame);
+  return canvas;
+}
+
+/** The photo of a page, flipped and turned but not toned, `maxSide` pixels
+ * at most — what the filter picker's tiles start from. */
+export async function photoTile(source: SourceDoc, page: WorkPage, maxSide: number): Promise<HTMLCanvasElement> {
+  const bitmap = await getImageBitmap(source);
+  const k = Math.min(1, maxSide / Math.max(page.width, page.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(page.width * k));
+  canvas.height = Math.max(1, Math.round(page.height * k));
+  paintPhoto(canvas.getContext('2d', { willReadFrequently: true })!, bitmap, page, fullFrame(page, canvas.width), false);
+  return canvas;
+}
+
+/** Resolution used when turning pages into images. 150 DPI reads cleanly on screen and in print. */
+const IMAGE_EXPORT_DPI = 150;
+
+/**
+ * Canvas pixels per point for turning a page into an image: a photo's page
+ * (one point per pixel, see the loader) comes out at its own resolution, not
+ * blown up twice over; a document page at 150 DPI, which reads cleanly on
+ * screen and in print.
+ */
+export function imageExportScale(doc: DocumentState, page: WorkPage | undefined): number {
+  const source = page?.sourceId ? doc.sources[page.sourceId] : undefined;
+  if (source?.kind === 'image' || (!source && doc.kind === 'image')) return 1;
+  return IMAGE_EXPORT_DPI / 72;
+}
+
+let webpEncoding: boolean | null = null;
+
+/** Whether this browser can write WebP images (Safari, for one, can only read them). */
+export function canEncodeWebp(): boolean {
+  if (webpEncoding === null) {
+    try {
+      const probe = document.createElement('canvas');
+      probe.width = probe.height = 1;
+      webpEncoding = probe.toDataURL('image/webp').startsWith('data:image/webp');
+    } catch {
+      webpEncoding = false;
+    }
+  }
+  return webpEncoding;
 }
 
 /**
@@ -53,11 +149,13 @@ export function releaseAll() {
  * here means the page and its overlays never drift apart.
  *
  * @param scale canvas pixels per PDF point.
+ * @param fast an edited photo is worked on small, for a slider still moving.
  */
 export async function renderPageRaw(
   source: SourceDoc | undefined,
   page: WorkPage,
   scale: number,
+  { fast = false }: { fast?: boolean } = {},
 ): Promise<HTMLCanvasElement> {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(page.width * scale));
@@ -79,7 +177,28 @@ export async function renderPageRaw(
     pdfPage.cleanup();
   } else {
     const bmp = await getImageBitmap(source);
-    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    if (!changesPixels(page)) {
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    }
+    // Edited: toned at a size the main thread keeps up with, then the
+    // blurred or pixelated areas on a copy, then drawn to fill the canvas.
+    const budget = fast ? FAST_EDIT_PIXELS : VIEW_EDIT_PIXELS;
+    const k = Math.min(1, Math.sqrt(budget / (canvas.width * canvas.height)));
+    const width = Math.max(1, Math.round(canvas.width * k));
+    const height = Math.max(1, Math.round(canvas.height * k));
+    let shown = editedPhoto(source, page, bmp, width, height);
+    if (redactionsOf(page).length) {
+      const work = document.createElement('canvas');
+      work.width = width;
+      work.height = height;
+      const workCtx = work.getContext('2d', { willReadFrequently: true })!;
+      workCtx.drawImage(shown, 0, 0);
+      applyRedactions(workCtx, page, fullFrame(page, width));
+      shown = work;
+    }
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(shown, 0, 0, canvas.width, canvas.height);
   }
   return canvas;
 }
@@ -131,18 +250,24 @@ export async function renderEditedPage(doc: DocumentState, page: WorkPage, edits
  *
  * @param scaleFor canvas pixels per PDF point for the page at that index.
  * @param onPage also given the page's displayed size in points.
+ * @param transparentFor pages drawn on nothing rather than on white paper — a
+ *   photo with see-through parts keeps them in a PNG or WebP.
+ * @param emptyFor pages known to have nothing to draw: `onPage` gets a canvas
+ *   of the right size that was never drawn into (nor given any memory).
  */
 export async function rasterizePages(
   bytes: Uint8Array,
   scaleFor: (index: number) => number,
   onPage: (canvas: HTMLCanvasElement, index: number, total: number, size: { width: number; height: number }) => Promise<void> | void,
+  transparentFor: (index: number) => boolean = () => false,
+  emptyFor: (index: number) => boolean = () => false,
 ): Promise<void> {
   const opened = await openWithPdfJs(bytes);
   const pdf = opened.doc;
   try {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
-      const canvas = await renderToCanvas(page, scaleFor(i - 1));
+      const canvas = await renderToCanvas(page, scaleFor(i - 1), transparentFor(i - 1), !emptyFor(i - 1));
       // The page's displayed size in points — the scale may have been capped.
       const { width, height } = page.getViewport({ scale: 1 });
       page.cleanup();
@@ -157,18 +282,24 @@ export async function rasterizePages(
   }
 }
 
-/** Renders one pdf.js page on white, its scale capped to what a canvas can hold. */
-async function renderToCanvas(page: PDFPageProxy, wantedScale: number): Promise<HTMLCanvasElement> {
+/** Renders one pdf.js page on white (or on nothing), its scale capped to
+ * what a canvas can hold. */
+async function renderToCanvas(page: PDFPageProxy, wantedScale: number, transparent = false, draw = true): Promise<HTMLCanvasElement> {
   const base = page.getViewport({ scale: 1 });
   const scale = Math.min(wantedScale, Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, base.width * base.height)));
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(viewport.width));
   canvas.height = Math.max(1, Math.round(viewport.height));
+  if (!draw) return canvas;
+  // Asked for first, with its default see-through backdrop: pdf.js would
+  // otherwise make the context opaque itself.
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  await page.render({ canvas, viewport, intent: 'print' }).promise;
+  if (!transparent) {
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  await page.render({ canvas, viewport, intent: 'print', background: transparent ? 'rgba(0,0,0,0)' : undefined }).promise;
   return canvas;
 }
 

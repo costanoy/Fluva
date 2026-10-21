@@ -3,6 +3,7 @@ import { Icon } from '../components/Icon';
 import { useApp } from '../state/AppContext';
 import { t } from '../i18n/translations';
 import type { ExportFormat } from '../pdf/exporters';
+import { canEncodeWebp } from '../pdf/render';
 import '../styles/menu.css';
 
 /** Closes a floating menu on Esc or on a press anywhere outside it (the
@@ -86,6 +87,9 @@ export function ExportDropdown() {
       {isPdf && pdfRow}
       <MenuRow tag="PNG" tagClass="format-tag-pink" label={t('export.png')} desc={t('export.pngDesc')} highlighted={state.exportFormat === 'png'} disabled={busy} onClick={() => run('png')} />
       <MenuRow tag="JPG" tagClass="format-tag-pink" label={t('export.jpg')} desc={t('export.jpgDesc')} highlighted={state.exportFormat === 'jpg'} disabled={busy} onClick={() => run('jpg')} />
+      {!isPdf && canEncodeWebp() && (
+        <MenuRow tag="WEBP" tagClass="format-tag-pink" label={t('export.webp')} desc={t('export.webpDesc')} highlighted={state.exportFormat === 'webp'} disabled={busy} onClick={() => run('webp')} />
+      )}
       {!isPdf && pdfRow}
       {isPdf && (
         <MenuRow
@@ -118,7 +122,7 @@ export function ExportDropdown() {
 
 /** The reader's "Alterar formato" — the same menu minus the signed PDF, for
  * the conversions the reader itself can run. */
-export function FormatMenu({ onClose, onPick }: { onClose: () => void; onPick: (format: 'pdf' | 'png' | 'jpg') => void }) {
+export function FormatMenu({ onClose, onPick }: { onClose: () => void; onPick: (format: 'pdf' | 'png' | 'jpg' | 'webp') => void }) {
   const ref = useDismiss(onClose);
   return (
     <div className="popover export-menu" role="menu" ref={ref}>
@@ -126,6 +130,7 @@ export function FormatMenu({ onClose, onPick }: { onClose: () => void; onPick: (
       <MenuRow tag="PDF" tagClass="format-tag-green" label={t('export.pdf')} desc={t('export.pdfFromImagesDesc')} onClick={() => onPick('pdf')} />
       <MenuRow tag="PNG" tagClass="format-tag-pink" label={t('export.png')} desc={t('export.pngDesc')} onClick={() => onPick('png')} />
       <MenuRow tag="JPG" tagClass="format-tag-pink" label={t('export.jpg')} desc={t('export.jpgDesc')} onClick={() => onPick('jpg')} />
+      {canEncodeWebp() && <MenuRow tag="WEBP" tagClass="format-tag-pink" label={t('export.webp')} desc={t('export.webpDesc')} onClick={() => onPick('webp')} />}
     </div>
   );
 }

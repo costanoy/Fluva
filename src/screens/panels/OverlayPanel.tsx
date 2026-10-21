@@ -1,19 +1,49 @@
 import { useRef } from 'react';
 import { Check, Circle, Move, Palette, Pipette, RotateCw, Square, Trash2 } from 'lucide-react';
 import { Button } from '../../components/Button';
+import { RangeField } from '../../components/RangeField';
 import { useApp } from '../../state/AppContext';
 import { SUBSTITUTE_FAMILIES } from '../../pdf/fonts';
 import type { Overlay } from '../../pdf/model';
+import { pointsToThickness, thicknessToPoints } from '../../pdf/annotations';
 import { t } from '../../i18n/translations';
 
 const SHAPE_COLORS = ['#1D9E75', '#D85A30', '#534AB7', '#2C2C2A', '#FFFFFF'];
 const TEXT_COLORS = ['#161616', '#2B4C8C', '#B3261E', '#1D7A4E', '#FFFFFF'];
+const MARK_COLORS = ['#E5383B', '#FFB703', '#1D9E75', '#2B6CB0', '#161616', '#FFFFFF'];
 
 /** Editor for the overlay the user has selected on the page. */
 export function OverlayPanel({ overlay }: { overlay: Overlay }) {
   const { state, actions } = useApp();
   const update = (patch: Partial<Overlay>) => actions.updateOverlay(overlay.id, patch, true);
+  const live = (patch: Partial<Overlay>) => actions.updateOverlay(overlay.id, patch, false);
   const isPending = state.pendingOverlayId === overlay.id;
+  const page = state.doc.pages[state.activePageIndex] ?? { width: 595, height: 842 };
+
+  /** A thickness slider (see thicknessToPoints) over a width in points. */
+  const thickness = (points: number, apply: (points: number, done: boolean) => void) => (
+    <RangeField
+      label={t('draw.thickness')}
+      value={pointsToThickness(points, page)}
+      min={1}
+      max={100}
+      onLive={(v) => apply(thicknessToPoints(v, page), false)}
+      onCommit={(v) => apply(thicknessToPoints(v, page), true)}
+    />
+  );
+
+  const opacity = (value: number | undefined) => (
+    <RangeField
+      label={t('overlay.opacity')}
+      value={Math.round((value ?? 1) * 100)}
+      min={5}
+      max={100}
+      resetTo={100}
+      format={(v) => `${v}%`}
+      onLive={(v) => live({ opacity: v / 100 } as Partial<Overlay>)}
+      onCommit={(v) => update({ opacity: v / 100 } as Partial<Overlay>)}
+    />
+  );
 
   if (overlay.kind === 'text') {
     return (
@@ -118,6 +148,7 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
           {t('overlay.rotate90')}
         </Button>
         <RotationSlider value={overlay.rotation} onChange={(rotation) => actions.updateOverlay(overlay.id, { rotation }, false)} onCommit={(rotation) => update({ rotation })} />
+        {opacity(overlay.opacity)}
 
         <Button block onClick={() => actions.removeOverlay(overlay.id)}>
           <Trash2 size={16} strokeWidth={2.75} />
@@ -161,8 +192,27 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
           </button>
         </div>
 
+        <div className="panel-label">{t('overlay.shapeStyle')}</div>
+        <div className="segmented" role="radiogroup" aria-label={t('overlay.shapeStyle')}>
+          {([false, true] as const).map((outline) => (
+            <button
+              key={String(outline)}
+              type="button"
+              className="segmented-btn"
+              role="radio"
+              aria-checked={!!overlay.outline === outline}
+              style={{ background: !!overlay.outline === outline ? 'var(--color-accent)' : 'transparent', color: 'var(--graphite)' }}
+              onClick={() => update({ outline, strokeWidth: overlay.strokeWidth ?? thicknessToPoints(8, page) })}
+            >
+              {outline ? t('overlay.outline') : t('overlay.filled')}
+            </button>
+          ))}
+        </div>
+        {overlay.outline && thickness(overlay.strokeWidth ?? thicknessToPoints(8, page), (strokeWidth, done) => (done ? update : live)({ strokeWidth }))}
+
         <div className="panel-label">{t('overlay.color')}</div>
         <Swatches colors={SHAPE_COLORS} value={overlay.color} onChange={(color) => update({ color })} />
+        {opacity(overlay.opacity)}
 
         <div className="panel-label">{t('overlay.size')}</div>
         <div className="panel-row">
@@ -180,6 +230,124 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
     );
   }
 
+  if (overlay.kind === 'line') {
+    const heads = overlay.arrowStart && overlay.arrowEnd ? 'both' : overlay.arrowEnd || overlay.arrowStart ? 'end' : 'none';
+    const pick = (next: 'none' | 'end' | 'both') => update({ arrowStart: next === 'both', arrowEnd: next !== 'none' });
+    return (
+      <>
+        <h6 className="panel-title">{t('overlay.lineTitle')}</h6>
+        <div className="panel-note">{t('overlay.lineNote')}</div>
+
+        <div className="panel-label">{t('overlay.arrowheads')}</div>
+        <div className="segmented" role="radiogroup" aria-label={t('overlay.arrowheads')}>
+          {(['none', 'end', 'both'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              className="segmented-btn"
+              role="radio"
+              aria-checked={heads === option}
+              style={{ background: heads === option ? 'var(--color-accent)' : 'transparent', color: 'var(--graphite)' }}
+              onClick={() => pick(option)}
+            >
+              {t(option === 'none' ? 'overlay.headsNone' : option === 'end' ? 'overlay.headsOne' : 'overlay.headsBoth')}
+            </button>
+          ))}
+        </div>
+        <label className="check-row">
+          <input type="checkbox" checked={overlay.dashed} onChange={(e) => update({ dashed: e.target.checked })} />
+          {t('overlay.dashed')}
+        </label>
+
+        <div className="panel-label">{t('overlay.color')}</div>
+        <Swatches colors={MARK_COLORS} value={overlay.color} onChange={(color) => update({ color })} />
+        {thickness(overlay.strokeWidth, (strokeWidth, done) => (done ? update : live)({ strokeWidth }))}
+
+        <Button block onClick={() => actions.removeOverlay(overlay.id)}>
+          <Trash2 size={16} strokeWidth={2.75} />
+          {t('overlay.removeLine')}
+        </Button>
+      </>
+    );
+  }
+
+  if (overlay.kind === 'draw') {
+    return (
+      <>
+        <h6 className="panel-title">{overlay.highlighter ? t('overlay.highlightTitle') : t('overlay.strokeTitle')}</h6>
+        <div className="panel-note">{t('overlay.strokeNote')}</div>
+
+        <div className="panel-label">{t('overlay.color')}</div>
+        <Swatches colors={MARK_COLORS} value={overlay.color} onChange={(color) => update({ color })} />
+        {thickness(overlay.strokeWidth, (strokeWidth, done) => (done ? update : live)({ strokeWidth }))}
+
+        <Button block onClick={() => actions.setTool('draw')}>{t('overlay.keepDrawing')}</Button>
+        <Button block onClick={() => actions.removeOverlay(overlay.id)}>
+          <Trash2 size={16} strokeWidth={2.75} />
+          {t('overlay.removeStroke')}
+        </Button>
+      </>
+    );
+  }
+
+  if (overlay.kind === 'redact') {
+    return (
+      <>
+        <h6 className="panel-title">{t('overlay.redactTitle')}</h6>
+        <div className="panel-note">{t('overlay.redactNote')}</div>
+
+        <div className="panel-label">{t('overlay.redactEffect')}</div>
+        <div className="segmented" role="radiogroup" aria-label={t('overlay.redactEffect')}>
+          {(['blur', 'pixelate'] as const).map((effect) => (
+            <button
+              key={effect}
+              type="button"
+              className="segmented-btn"
+              role="radio"
+              aria-checked={overlay.effect === effect}
+              style={{ background: overlay.effect === effect ? 'var(--color-accent)' : 'transparent', color: 'var(--graphite)' }}
+              onClick={() => update({ effect })}
+            >
+              {effect === 'blur' ? t('overlay.redactBlur') : t('overlay.redactPixelate')}
+            </button>
+          ))}
+        </div>
+
+        <div className="panel-label">{t('overlay.shapeFormat')}</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {(['rect', 'ellipse'] as const).map((shape) => (
+            <button
+              key={shape}
+              type="button"
+              className="shape-type-btn"
+              aria-label={shape === 'rect' ? t('overlay.rectangle') : t('overlay.ellipse')}
+              title={shape === 'rect' ? t('overlay.rectangle') : t('overlay.ellipse')}
+              aria-pressed={overlay.shape === shape}
+              style={{ background: overlay.shape === shape ? 'var(--color-accent-100)' : undefined, borderColor: overlay.shape === shape ? 'var(--color-accent)' : undefined }}
+              onClick={() => update({ shape })}
+            >
+              {shape === 'rect' ? <Square size={20} strokeWidth={2.5} /> : <Circle size={20} strokeWidth={2.5} />}
+            </button>
+          ))}
+        </div>
+
+        <RangeField
+          label={t('overlay.redactStrength')}
+          value={overlay.strength}
+          min={1}
+          max={100}
+          onLive={(strength) => live({ strength })}
+          onCommit={(strength) => update({ strength })}
+        />
+
+        <Button block onClick={() => actions.removeOverlay(overlay.id)}>
+          <Trash2 size={16} strokeWidth={2.75} />
+          {t('overlay.removeRedact')}
+        </Button>
+      </>
+    );
+  }
+
   return (
     <>
       <h6 className="panel-title">{t('overlay.coverTitle')}</h6>
@@ -192,7 +360,7 @@ export function OverlayPanel({ overlay }: { overlay: Overlay }) {
   );
 }
 
-function Swatches({ colors, value, onChange }: { colors: string[]; value: string; onChange: (c: string) => void }) {
+export function Swatches({ colors, value, onChange }: { colors: string[]; value: string; onChange: (c: string) => void }) {
   const hasEyeDropper = typeof window !== 'undefined' && 'EyeDropper' in window;
 
   const pickFromScreen = async () => {

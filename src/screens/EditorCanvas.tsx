@@ -7,7 +7,10 @@ import { TextRunLayer } from '../components/TextRunLayer';
 import { TextRunPreview } from '../components/TextRunPreview';
 import { SplitPreview } from '../components/SplitPreview';
 import { ReorderPreview } from '../components/ReorderPreview';
-import { displaySize } from '../pdf/model';
+import { CropFrame } from '../components/CropFrame';
+import { DrawLayer } from '../components/DrawLayer';
+import { displaySize, imageEditsOf, isImagePage, NO_ADJUST, type WorkPage } from '../pdf/model';
+import { aspectInPage } from '../pdf/crop';
 import { pageEdits } from '../pdf/replacement';
 import '../styles/canvas.css';
 
@@ -36,8 +39,24 @@ export function EditorCanvas() {
   // selection the user was never trying to change.
   const didPanRef = useRef(false);
 
-  const page = state.doc.pages[state.activePageIndex];
+  const activePage = state.doc.pages[state.activePageIndex];
   const zoom = state.zoom;
+  const draft = state.toolMode === 'crop' && state.cropDraft?.pageId === activePage?.id ? state.cropDraft : null;
+  const photo = isImagePage(state.doc, activePage);
+
+  // The page as it's shown: while cropping, whole and turned the way the
+  // crop will turn it; while "compare" is held, without its light, colour
+  // and filter.
+  const page = useMemo((): WorkPage | undefined => {
+    if (!activePage) return activePage;
+    let shown = activePage;
+    if (draft) {
+      shown = { ...shown, crop: null, rotation: draft.rotation };
+      if (photo) shown = { ...shown, image: { ...imageEditsOf(shown), flipH: draft.flipH, flipV: draft.flipV, straighten: draft.straighten } };
+    }
+    if (state.comparing && shown.image) shown = { ...shown, image: { ...shown.image, filter: 'none', adjust: NO_ADJUST } };
+    return shown;
+  }, [activePage, draft, photo, state.comparing]);
 
   // Text replacements are drawn into the page bitmap itself, by pdf.js, the
   // way the export writes them (see pageEdits) — so edited text shows in the
@@ -225,6 +244,16 @@ export function EditorCanvas() {
             baked={baked}
           />
           {state.toolMode === null && state.doc.kind === 'pdf' && <TextRunLayer page={page} scale={safeScale} />}
+          {state.toolMode === 'draw' && <DrawLayer page={page} scale={safeScale} />}
+          {draft && (
+            <CropFrame
+              page={page}
+              rect={draft.rect}
+              scale={safeScale}
+              ratio={aspectInPage(draft.aspect, page, draft.rotation)}
+              onChange={(rect) => actions.updateCropDraft({ rect })}
+            />
+          )}
           {/* Keyed by the target run so switching to a different run remounts
               fresh at its own spot instead of animating a slide between the two
               — the smooth transition should only ever apply within one run

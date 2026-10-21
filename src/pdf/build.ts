@@ -1,5 +1,14 @@
 import {
+  appendBezierCurve,
+  closePath,
+  concatTransformationMatrix,
   degrees,
+  drawObject,
+  fill,
+  LineCapStyle,
+  LineJoinStyle,
+  lineTo,
+  moveTo,
   PDFArray,
   PDFDict,
   PDFDocument,
@@ -9,15 +18,30 @@ import {
   PDFPageLeaf,
   PDFRef,
   PDFStream,
+  popGraphicsState,
+  pushGraphicsState,
   rgb,
+  setDashPattern,
+  setFillingRgbColor,
+  setGraphicsState,
+  setLineCap,
+  setLineJoin,
+  setLineWidth,
+  setStrokingRgbColor,
+  stroke,
   type PDFFont,
   type PDFImage,
   type PDFObject,
+  type PDFOperator,
 } from 'pdf-lib';
-import type { CoverOverlay, DocumentState, ImageAsset, Overlay, WatermarkConfig, WorkPage } from './model';
+import { zlibSync } from 'fflate';
+import { imageEditsOf, type CoverOverlay, type DocumentState, type DrawOverlay, type ImageAsset, type LineOverlay, type Overlay, type Rect, type WatermarkConfig, type WorkPage } from './model';
 import { createFontSet, fontSupportsText } from './fonts';
 import { resolveOriginalFontBytes } from './textExtract';
-import { getPdfDoc, renderPageImage } from './render';
+import { canvasToBlob, getPdfDoc, renderPageImage, renderPhoto } from './render';
+import { changesPixels, shownRect } from './imageEdit';
+import { dashPattern, HIGHLIGHTER_OPACITY, lineGeometry, smoothSegments, strokePoints, type Pt } from './annotations';
+import { MAX_CANVAS_PIXELS } from './geometry';
 import { removeCoveredText, type RemovalResult } from './textRemoval';
 import { inPlaceCover, runFontCover } from './replacement';
 import { displayRectToRaw, displayToRaw, hexToRgb, normalizeRotation, TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT, type Quarter } from './geometry';
@@ -41,12 +65,23 @@ const parsedSources = new WeakMap<Uint8Array, Promise<PDFDocument>>();
 /** Resolution a protected PDF's pages are redrawn at (see `buildPdf`). */
 const PROTECTED_PAGE_DPI = 200;
 
+/** The most pixels an edited photo is written with: a bigger one is scaled
+ * to fit, rather than working on (and holding) hundreds of megabytes. */
+const PHOTO_EXPORT_PIXELS = Math.min(MAX_CANVAS_PIXELS, 24_000_000);
+
+export interface BuildOptions {
+  /** The PDF only exists to be turned into images (see rasterize.ts), which
+   * draw each photo page's photo themselves: those pages carry only what's
+   * on top of the photo. */
+  omitPhotos?: boolean;
+}
+
 /**
  * Assembles the real output PDF from the source files plus the recorded edits.
  * This is the single place where edits become bytes; the editor never mutates
  * the originals.
  */
-export async function buildPdf(doc: DocumentState, report?: BuildReport): Promise<Uint8Array> {
+export async function buildPdf(doc: DocumentState, report?: BuildReport, options: BuildOptions = {}): Promise<Uint8Array> {
   const out = await PDFDocument.create();
   const fonts = createFontSet(out);
 
@@ -198,17 +233,34 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport): Promis
         if (result.clean.size < covers.length && report) report.replacedTextKept = true;
       }
     } else if (source && source.kind === 'image') {
-      // An image page is a page sized to the image, with the image drawn to fill it.
+      // An image page is a page sized to the image, with the image drawn to
+      // fill it — or, once edited, cropped or made smaller, only the part
+      // that's shown, redrawn with every edit (see imageEdit.ts): what was
+      // cropped away or blurred out isn't left hidden in the file.
       rawW = page.width;
       rawH = page.height;
       outPage = out.addPage([rawW, rawH]);
-      const asset = Object.values(doc.assets).find((a) => a.bytes === source.bytes);
-      const img = asset
-        ? await embedAsset(asset.id)
-        : source.mime === 'image/png'
-          ? await out.embedPng(source.bytes)
-          : await out.embedJpg(source.bytes);
-      if (img) outPage.drawImage(img, { x: 0, y: 0, width: rawW, height: rawH });
+      const scale = imageEditsOf(page).scale;
+      if (options.omitPhotos) {
+        // Drawn by whoever turns this PDF into an image.
+      } else if (changesPixels(page) || page.crop || scale < 1) {
+        const shown = shownRect(page);
+        const ppp = Math.min(1, scale, Math.sqrt(PHOTO_EXPORT_PIXELS / (shown.width * shown.height)));
+        const canvas = await renderPhoto(source, page, { ...shown, ppp });
+        try {
+          await drawPhoto(out, outPage, canvas, shown, source.mime === 'image/jpeg');
+        } finally {
+          canvas.width = canvas.height = 0;
+        }
+      } else {
+        const asset = Object.values(doc.assets).find((a) => a.bytes === source.bytes);
+        const img = asset
+          ? await embedAsset(asset.id)
+          : source.mime === 'image/png'
+            ? await out.embedPng(source.bytes)
+            : await out.embedJpg(source.bytes);
+        if (img) outPage.drawImage(img, { x: 0, y: 0, width: rawW, height: rawH });
+      }
     } else {
       rawW = page.width;
       rawH = page.height;
@@ -238,6 +290,22 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport): Promis
         outPage.setCropBox(x0, y0, x1 - x0, y1 - y0);
         outPage.setMediaBox(x0, y0, x1 - x0, y1 - y0);
       }
+    }
+
+    // A photo made bigger or smaller scales its whole page, content and box
+    // together — the image exports then come out at that size, and a PDF
+    // page is as many points as the image is pixels, as always.
+    const outScale = source?.kind === 'image' ? imageEditsOf(page).scale : 1;
+    if (Math.abs(outScale - 1) > 1e-6) {
+      // To whole pixels: an image can't be 1037.5 pixels wide.
+      const box = visibleBox(outPage);
+      const width = Math.max(1, Math.round(box.width * outScale));
+      const height = Math.max(1, Math.round(box.height * outScale));
+      const sx = width / box.width;
+      const sy = height / box.height;
+      outPage.scaleContent(sx, sy);
+      outPage.setMediaBox(box.x * sx, box.y * sy, width, height);
+      outPage.setCropBox(box.x * sx, box.y * sy, width, height);
     }
 
     outPage.setRotation(degrees(normalizeRotation(sourceRotation + page.rotation)));
@@ -345,6 +413,54 @@ function restoreForms(out: PDFDocument, sources: Array<{ srcDoc: PDFDocument; co
     }
   }
   out.catalog.set(PDFName.of('AcroForm'), context.register(acroForm));
+}
+
+/**
+ * Draws an edited photo's pixels over `rect` (page space): a JPEG when
+ * that's what the photo was and it has nothing see-through, else the pixels
+ * themselves, deflated — lossless, and with their transparency.
+ */
+async function drawPhoto(out: PDFDocument, page: PDFPage, canvas: HTMLCanvasElement, rect: Rect, asJpeg: boolean) {
+  const { width: w, height: h } = canvas;
+  const data = canvas.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, w, h).data;
+  let opaque = true;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] !== 255) {
+      opaque = false;
+      break;
+    }
+  }
+  if (asJpeg && opaque) {
+    const blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
+    const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
+    page.drawImage(img, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+    return;
+  }
+  const colour = new Uint8Array(w * h * 3);
+  const alpha = opaque ? null : new Uint8Array(w * h);
+  for (let i = 0, j = 0, k = 0; i < data.length; i += 4, j += 3, k++) {
+    colour[j] = data[i];
+    colour[j + 1] = data[i + 1];
+    colour[j + 2] = data[i + 2];
+    if (alpha) alpha[k] = data[i + 3];
+  }
+  const { context } = out;
+  const image = (bytes: Uint8Array, space: 'DeviceRGB' | 'DeviceGray', extra: Record<string, PDFObject> = {}) =>
+    context.register(
+      context.stream(zlibSync(bytes, { level: 6 }), {
+        Type: 'XObject',
+        Subtype: 'Image',
+        Width: w,
+        Height: h,
+        ColorSpace: space,
+        BitsPerComponent: 8,
+        Filter: 'FlateDecode',
+        ...extra,
+      }),
+    );
+  const ref = image(colour, 'DeviceRGB', alpha ? { SMask: image(alpha, 'DeviceGray') } : {});
+  const name = page.node.newXObject('Image', ref);
+  page.pushOperators(pushGraphicsState(), concatTransformationMatrix(rect.width, 0, 0, rect.height, rect.x, rect.y), drawObject(name), popGraphicsState());
 }
 
 /** Removes every object nothing in the document points to any more. */
@@ -473,6 +589,11 @@ async function drawOverlay(
   const isWatermark = overlay.id === 'watermark';
   const opacity = isWatermark ? 0.35 : 1;
 
+  // Already in the photo's own pixels (see imageEdit.ts).
+  if (overlay.kind === 'redact') return;
+  if (overlay.kind === 'line') return drawLine(page, overlay, toRaw);
+  if (overlay.kind === 'draw') return drawStroke(page, overlay, toRaw);
+
   if (overlay.kind === 'text') {
     // The original font, byte-for-byte reused from the source PDF, is tried
     // first when the run asked for it — it's wrapped in its own try/catch
@@ -565,25 +686,46 @@ async function drawOverlay(
       y: anchor.y,
       width: overlay.width,
       height: overlay.height,
-      opacity,
+      opacity: opacity * (overlay.opacity ?? 1),
       rotate: angle,
     });
     return;
   }
 
   const { r, g, b } = hexToRgb(overlay.color);
+  const colour = rgb(r, g, b);
 
-  if (overlay.kind === 'shape' && overlay.shape === 'circle') {
-    // An ellipse is placed by its centre, so map the centre rather than the corner.
-    const centre = toRaw(overlay.x + overlay.width / 2, overlay.y + overlay.height / 2);
-    const quarterTurned = (overlay.rotation + sourceRotation) % 180 !== 0;
-    return void page.drawEllipse({
-      x: centre.x,
-      y: centre.y,
-      xScale: (quarterTurned ? overlay.height : overlay.width) / 2,
-      yScale: (quarterTurned ? overlay.width : overlay.height) / 2,
-      color: rgb(r, g, b),
-      opacity,
+  if (overlay.kind === 'shape') {
+    const alpha = opacity * (overlay.opacity ?? 1);
+    // An outline sits inside the box, as on screen: its path runs half a
+    // stroke in from the edge.
+    const line = overlay.outline ? Math.max(0.5, Math.min(overlay.strokeWidth ?? 4, overlay.width / 2, overlay.height / 2)) : 0;
+    const paint = overlay.outline
+      ? { borderColor: colour, borderWidth: line, borderOpacity: alpha }
+      : { color: colour, opacity: alpha };
+    if (overlay.shape === 'circle') {
+      // An ellipse is placed by its centre, so map the centre rather than the corner.
+      const centre = toRaw(overlay.x + overlay.width / 2, overlay.y + overlay.height / 2);
+      const quarterTurned = (overlay.rotation + sourceRotation) % 180 !== 0;
+      return void page.drawEllipse({
+        x: centre.x,
+        y: centre.y,
+        xScale: ((quarterTurned ? overlay.height : overlay.width) - line) / 2,
+        yScale: ((quarterTurned ? overlay.width : overlay.height) - line) / 2,
+        ...paint,
+      });
+    }
+    // The inset corner, along the box's own (turned) axes.
+    const phi = (overlay.rotation * Math.PI) / 180;
+    const half = line / 2;
+    const corner = toRaw(overlay.x + half * (Math.cos(phi) - Math.sin(phi)), overlay.y + half * (Math.sin(phi) + Math.cos(phi)));
+    return void page.drawRectangle({
+      x: corner.x,
+      y: corner.y,
+      width: overlay.width - line,
+      height: overlay.height - line,
+      rotate: angle,
+      ...paint,
     });
   }
 
@@ -592,8 +734,66 @@ async function drawOverlay(
     y: anchor.y,
     width: overlay.width,
     height: overlay.height,
-    color: rgb(r, g, b),
+    color: colour,
     opacity,
     rotate: angle,
   });
+}
+
+/** A path's operators, `map` taking each point from page space to the
+ * PDF's. PDF curves are all cubic — pdf-lib's "quadratic" one is a
+ * different curve — so each quadratic is written as the cubic it equals. */
+function pathOperators(points: Pt[], map: (x: number, y: number) => Pt): PDFOperator[] {
+  const at = (p: Pt) => map(p.x, p.y);
+  let current: Pt = { x: 0, y: 0 };
+  return smoothSegments(points).map((s) => {
+    const to = at(s.to);
+    const from = current;
+    current = to;
+    if (s.op === 'Q') {
+      const c = at(s.control);
+      const k = 2 / 3;
+      return appendBezierCurve(from.x + k * (c.x - from.x), from.y + k * (c.y - from.y), to.x + k * (c.x - to.x), to.y + k * (c.y - to.y), to.x, to.y);
+    }
+    return s.op === 'M' ? moveTo(to.x, to.y) : lineTo(to.x, to.y);
+  });
+}
+
+function strokeStyle(colour: string, width: number): PDFOperator[] {
+  const { r, g, b } = hexToRgb(colour);
+  return [
+    setStrokingRgbColor(r, g, b),
+    setFillingRgbColor(r, g, b),
+    setLineWidth(width),
+    setLineCap(LineCapStyle.Round),
+    setLineJoin(LineJoinStyle.Round),
+  ];
+}
+
+function drawLine(page: PDFPage, line: LineOverlay, toRaw: (dx: number, dy: number) => Pt) {
+  const { from, to, heads } = lineGeometry(line);
+  const ops = [pushGraphicsState(), ...strokeStyle(line.color, line.strokeWidth)];
+  if (line.dashed) ops.push(setDashPattern(dashPattern(line.strokeWidth), 0));
+  const a = toRaw(from.x, from.y);
+  const b = toRaw(to.x, to.y);
+  ops.push(moveTo(a.x, a.y), lineTo(b.x, b.y), stroke());
+  for (const head of heads) {
+    const [tip, left, right] = head.map((p) => toRaw(p.x, p.y));
+    ops.push(moveTo(tip.x, tip.y), lineTo(left.x, left.y), lineTo(right.x, right.y), closePath(), fill());
+  }
+  ops.push(popGraphicsState());
+  page.pushOperators(...ops);
+}
+
+function drawStroke(page: PDFPage, mark: DrawOverlay, toRaw: (dx: number, dy: number) => Pt) {
+  const points = strokePoints(mark);
+  if (!points.length) return;
+  const ops = [pushGraphicsState()];
+  if (mark.highlighter) {
+    // Multiplied in, like ink: dark text under a highlight stays dark.
+    const state = page.doc.context.obj({ Type: 'ExtGState', CA: HIGHLIGHTER_OPACITY, BM: 'Multiply' });
+    ops.push(setGraphicsState(page.node.newExtGState('GS', page.doc.context.register(state))));
+  }
+  ops.push(...strokeStyle(mark.color, mark.strokeWidth), ...pathOperators(points, toRaw), stroke(), popGraphicsState());
+  page.pushOperators(...ops);
 }

@@ -69,3 +69,155 @@
   border-radius: 5px;
   pointer-events: none;
 }
+
+/* --------------------------------------------------------------- cortar */
+
+/* O recorte sobre a página inteira: o que fica fora escurece (a sombra
+   gigante é cortada pela própria página), a grade dos terços aparece. */
+.crop-frame {
+  position: absolute;
+  box-shadow: 0 0 0 200vmax rgba(18, 17, 15, .58);
+  outline: 1.5px solid #FFFFFF;
+  cursor: move;
+  touch-action: none;
+  z-index: 4;
+}
+
+.crop-frame:focus-visible {
+  outline: 2.5px solid var(--ink-green);
+}
+
+.crop-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: .55;
+  transition: opacity .15s ease-out;
+}
+
+.crop-frame-active .crop-grid {
+  opacity: 1;
+}
+
+.crop-grid span {
+  position: absolute;
+  background: rgba(255, 255, 255, .8);
+  box-shadow: 0 0 1px rgba(0, 0, 0, .5);
+}
+
+.crop-grid span:nth-child(1),
+.crop-grid span:nth-child(2) {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.crop-grid span:nth-child(1) { left: 33.333%; }
+.crop-grid span:nth-child(2) { left: 66.667%; }
+
+.crop-grid span:nth-child(3),
+.crop-grid span:nth-child(4) {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.crop-grid span:nth-child(3) { top: 33.333%; }
+.crop-grid span:nth-child(4) { top: 66.667%; }
+
+/* Cada alça é uma área grande de toque; o desenho (cantoneira ou barra)
+   fica do lado de dentro do recorte, nunca cortado pela borda da página. */
+.crop-handle {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  touch-action: none;
+}
+
+.crop-handle::before {
+  content: "";
+  position: absolute;
+  border: 0 solid #FFFFFF;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, .6));
+}
+
+.crop-handle-nw { left: -16px; top: -16px; cursor: nwse-resize; }
+.crop-handle-ne { right: -16px; top: -16px; cursor: nesw-resize; }
+.crop-handle-se { right: -16px; bottom: -16px; cursor: nwse-resize; }
+.crop-handle-sw { left: -16px; bottom: -16px; cursor: nesw-resize; }
+
+.crop-handle-nw::before,
+.crop-handle-ne::before,
+.crop-handle-se::before,
+.crop-handle-sw::before {
+  width: 18px;
+  height: 18px;
+}
+
+.crop-handle-nw::before { left: 16px; top: 16px; border-left-width: 4px; border-top-width: 4px; }
+.crop-handle-ne::before { right: 16px; top: 16px; border-right-width: 4px; border-top-width: 4px; }
+.crop-handle-se::before { right: 16px; bottom: 16px; border-right-width: 4px; border-bottom-width: 4px; }
+.crop-handle-sw::before { left: 16px; bottom: 16px; border-left-width: 4px; border-bottom-width: 4px; }
+
+.crop-handle-n,
+.crop-handle-s {
+  left: calc(50% - 22px);
+  width: 44px;
+  cursor: ns-resize;
+}
+
+.crop-handle-n { top: -16px; }
+.crop-handle-s { bottom: -16px; }
+
+.crop-handle-e,
+.crop-handle-w {
+  top: calc(50% - 22px);
+  height: 44px;
+  cursor: ew-resize;
+}
+
+.crop-handle-e { right: -16px; }
+.crop-handle-w { left: -16px; }
+
+.crop-handle-n::before,
+.crop-handle-s::before {
+  left: 10px;
+  width: 24px;
+  height: 4px;
+  background: #FFFFFF;
+}
+
+.crop-handle-n::before { top: 16px; }
+.crop-handle-s::before { bottom: 16px; }
+
+.crop-handle-e::before,
+.crop-handle-w::before {
+  top: 10px;
+  width: 4px;
+  height: 24px;
+  background: #FFFFFF;
+}
+
+.crop-handle-e::before { right: 16px; }
+.crop-handle-w::before { left: 16px; }
+
+/* ------------------------------------------------------------- desenhar */
+
+.draw-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.draw-layer-eraser {
+  cursor: none;
+}
+
+/* Área desfocada: o efeito está nos pixels da foto; o contorno só aparece
+   ao passar o mouse, para dar onde clicar. */
+.redact-area:hover {
+  outline: 1.5px dashed rgba(255, 255, 255, .9);
+  outline-offset: -1.5px;
+}

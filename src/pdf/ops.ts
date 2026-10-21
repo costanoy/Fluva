@@ -1,7 +1,8 @@
 import { PDFDocument } from 'pdf-lib';
-import type { DocumentState } from './model';
+import { isImagePage, watermarkOn, type DocumentState, type WorkPage } from './model';
 import { buildPdf } from './build';
-import { canvasToBlob, rasterizePages } from './render';
+import { canEncodeWebp, canvasToBlob, imageExportScale, rasterizePages } from './render';
+import { rasterizeDocument } from './rasterize';
 import { t } from '../i18n/translations';
 
 export interface SplitResult {
@@ -110,6 +111,77 @@ export interface CompressResult {
    * text in the file stays selectable.
    */
   strategy: CompressStrategy;
+}
+
+/** Encoder quality per level, for a photo compressed back into a photo. */
+const IMAGE_COMPRESS_QUALITY: Record<CompressLevel, number> = { low: 0.82, medium: 0.68, high: 0.5 };
+
+export interface ImageCompressResult {
+  images: Array<{ name: string; bytes: Uint8Array; mime: string }>;
+  originalSize: number;
+  compressedSize: number;
+  reductionPct: number;
+}
+
+/**
+ * Compresses a photo document into photos again, at their own size and with
+ * every edit: a JPEG of each page — or, when it has see-through parts (a
+ * logo), a WebP, which keeps them (a PNG where the browser can't write WebP).
+ * Compared against the files the user opened.
+ */
+export async function compressImages(
+  doc: DocumentState,
+  baseName: string,
+  level: CompressLevel,
+  onProgress?: (done: number, total: number) => void,
+): Promise<ImageCompressResult> {
+  const quality = IMAGE_COMPRESS_QUALITY[level];
+  const webp = canEncodeWebp();
+  const pad = String(doc.pages.length).length;
+  const images: ImageCompressResult['images'] = [];
+  await rasterizeDocument(
+    doc,
+    (i) => imageExportScale(doc, doc.pages[i]),
+    async (canvas, i, total) => {
+      const translucent = hasTransparency(canvas);
+      let [mime, ext] = !translucent ? ['image/jpeg', 'jpg'] : webp ? ['image/webp', 'webp'] : ['image/png', 'png'];
+      let bytes: Uint8Array = new Uint8Array(await (await canvasToBlob(canvas, mime, mime === 'image/png' ? undefined : quality)).arrayBuffer());
+      // Never bigger than what was opened: a photo left as it was, which
+      // doesn't get any smaller, is handed back as it came.
+      const original = untouchedPhoto(doc, doc.pages[i]);
+      if (original && original.bytes.byteLength <= bytes.byteLength) {
+        bytes = original.bytes;
+        mime = original.mime;
+        ext = original.mime === 'image/png' ? 'png' : 'jpg';
+      }
+      const page = total > 1 ? t('file.page', { n: String(i + 1).padStart(pad, '0') }) : '';
+      images.push({ name: `${baseName}${page}${t('file.compressed')}.${ext}`, bytes, mime });
+      onProgress?.(i + 1, total);
+    },
+    (i) => isImagePage(doc, doc.pages[i]),
+  );
+  const sources = new Set(doc.pages.map((p) => p.sourceId).filter((id): id is string => !!id));
+  const originalSize = [...sources].reduce((n, id) => n + (doc.sources[id]?.bytes.byteLength ?? 0), 0);
+  const compressedSize = images.reduce((n, image) => n + image.bytes.byteLength, 0);
+  return {
+    images,
+    originalSize,
+    compressedSize,
+    reductionPct: originalSize ? Math.max(0, Math.round((1 - compressedSize / originalSize) * 100)) : 0,
+  };
+}
+
+/** The photo a page is, when nothing at all was done to it. */
+function untouchedPhoto(doc: DocumentState, page: WorkPage | undefined) {
+  if (!page || !isImagePage(doc, page)) return null;
+  if (page.overlays.length || page.image || page.crop || page.rotation % 360 || watermarkOn(doc, page)) return null;
+  return doc.sources[page.sourceId!] ?? null;
+}
+
+function hasTransparency(canvas: HTMLCanvasElement): boolean {
+  const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let i = 3; i < data.length; i += 4) if (data[i] < 255) return true;
+  return false;
 }
 
 /**

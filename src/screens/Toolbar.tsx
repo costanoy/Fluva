@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from '../components/Icon';
 import { useApp } from '../state/AppContext';
 import type { ToolMode } from '../state/appTypes';
+import { isImagePage } from '../pdf/model';
 import { t, type TranslationKey } from '../i18n/translations';
 import { MIN_SCALE, MAX_SCALE } from './EditorCanvas';
 import '../styles/toolbar.css';
@@ -9,7 +10,7 @@ import '../styles/toolbar.css';
 const ZOOM_STEP = 0.1;
 const clampScale = (v: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, v));
 
-type ToolId = 'edit' | 'merge' | 'split' | 'compress' | 'rotate' | 'watermark' | 'reorder';
+type ToolId = 'edit' | 'merge' | 'split' | 'compress' | 'rotate' | 'watermark' | 'reorder' | 'crop' | 'adjust' | 'resize';
 
 interface ToolDef {
   id: ToolId;
@@ -17,15 +18,25 @@ interface ToolDef {
   labelKey: TranslationKey;
 }
 
-/** Every tool the editor has for the open document, in toolbar order. */
+/** Every tool the editor has for the open document, in toolbar order. A
+ * photo gets the photo editor's own (crop, adjust, resize) up front. */
 function useTools(): ToolDef[] {
   const { state } = useApp();
   const isPdf = state.doc.kind === 'pdf';
+  const hasPhotos = state.doc.pages.some((page) => isImagePage(state.doc, page));
   const tools: ToolDef[] = [{ id: 'edit', icon: 'pencil', labelKey: 'toolbar.edit' }];
+  if (!isPdf) {
+    tools.push({ id: 'crop', icon: 'crop', labelKey: 'toolbar.crop' });
+    tools.push({ id: 'adjust', icon: 'adjust', labelKey: 'toolbar.adjust' });
+    tools.push({ id: 'resize', icon: 'resize', labelKey: 'toolbar.resize' });
+  }
   if (isPdf) tools.push({ id: 'merge', icon: 'merge', labelKey: 'toolbar.merge' });
   if (isPdf) tools.push({ id: 'split', icon: 'split', labelKey: 'toolbar.split' });
   tools.push({ id: 'compress', icon: 'compress', labelKey: 'toolbar.compress' });
   tools.push({ id: 'rotate', icon: 'rotate', labelKey: 'toolbar.rotate' });
+  if (isPdf) tools.push({ id: 'crop', icon: 'crop', labelKey: 'toolbar.crop' });
+  // Photos joined into a PDF can be adjusted too.
+  if (isPdf && hasPhotos) tools.push({ id: 'adjust', icon: 'adjust', labelKey: 'toolbar.adjust' });
   tools.push({ id: 'watermark', icon: 'watermark', labelKey: 'toolbar.watermark' });
   if (state.doc.pages.length > 1) tools.push({ id: 'reorder', icon: 'reorder', labelKey: 'toolbar.reorder' });
   return tools;
@@ -33,10 +44,14 @@ function useTools(): ToolDef[] {
 
 function useToolActions() {
   const { state, actions } = useApp();
-  const isActive = (id: ToolId) => (id === 'edit' ? !state.toolMode : id !== 'rotate' && state.toolMode === id);
+  // Drawing is part of editing.
+  const isActive = (id: ToolId) => (id === 'edit' ? !state.toolMode || state.toolMode === 'draw' : id !== 'rotate' && state.toolMode === id);
   const run = (id: ToolId) => {
-    if (id === 'rotate') actions.rotateActivePage();
-    else actions.setTool(id === 'edit' ? null : (id as Exclude<ToolMode, null>));
+    // With the crop tool open, turning is part of the crop in progress.
+    if (id === 'rotate') {
+      if (state.toolMode === 'crop') actions.turnCropDraft(1);
+      else actions.rotateActivePage();
+    } else actions.setTool(id === 'edit' ? null : (id as Exclude<ToolMode, null>));
   };
   return { isActive, run };
 }
@@ -134,9 +149,10 @@ export function MobileTabBar() {
   const busy = !!state.busy;
   const isPdf = state.doc.kind === 'pdf';
 
-  // Same order as the design's tab bar: Editar · Juntar · Dividir · Girar, then
-  // whatever the document still has room for; everything else goes in "Mais".
-  const priority: ToolId[] = ['edit', 'merge', 'split', 'rotate', 'compress', 'watermark'];
+  // Same order as the design's tab bar: Editar · Juntar · Dividir · Girar (a
+  // photo: Editar · Cortar · Ajustar · Girar), then whatever the document
+  // still has room for; everything else goes in "Mais".
+  const priority: ToolId[] = isPdf ? ['edit', 'merge', 'split', 'rotate', 'compress', 'watermark'] : ['edit', 'crop', 'adjust', 'rotate', 'resize', 'compress'];
   const main = priority.map((id) => tools.find((tool) => tool.id === id)).filter((tool): tool is ToolDef => !!tool).slice(0, 4);
   const extra = tools.filter((tool) => !main.includes(tool));
   const moreActive = extra.some((tool) => isActive(tool.id));

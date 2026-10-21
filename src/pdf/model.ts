@@ -84,6 +84,8 @@ export interface ImageOverlay {
   height: number;
   assetId: string;
   rotation: number;
+  /** 0..1; fully opaque when unset. */
+  opacity?: number;
 }
 
 export interface ShapeOverlay {
@@ -96,6 +98,58 @@ export interface ShapeOverlay {
   shape: 'rect' | 'circle';
   color: string;
   rotation: number;
+  /** Just its outline, `strokeWidth` points thick and inside the box, instead of a solid fill. */
+  outline?: boolean;
+  strokeWidth?: number;
+  /** 0..1; fully opaque when unset. */
+  opacity?: number;
+}
+
+/** A straight line from (x, y) to (x + dx, y + dy), with an arrowhead at
+ * either end or both. */
+export interface LineOverlay {
+  id: string;
+  kind: 'line';
+  x: number;
+  y: number;
+  dx: number;
+  dy: number;
+  color: string;
+  strokeWidth: number;
+  arrowStart: boolean;
+  arrowEnd: boolean;
+  dashed: boolean;
+}
+
+/** A freehand stroke. `points` are x, y pairs from 0 to 1 across the stroke's
+ * box (y up), so resizing the box reshapes the stroke without thickening it. */
+export interface DrawOverlay {
+  id: string;
+  kind: 'draw';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  points: number[];
+  color: string;
+  strokeWidth: number;
+  /** Translucent and multiplied into what's under it, like a real highlighter. */
+  highlighter: boolean;
+}
+
+/** An area of a photo page blurred or pixelated in the photo's own pixels:
+ * what was there doesn't survive in the exported file (see imageEdit.ts). */
+export interface RedactOverlay {
+  id: string;
+  kind: 'redact';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  effect: 'blur' | 'pixelate';
+  shape: 'rect' | 'ellipse';
+  /** 1..100 */
+  strength: number;
 }
 
 /** An opaque box painted over original page content, used to replace existing text. */
@@ -109,7 +163,43 @@ export interface CoverOverlay {
   color: string;
 }
 
-export type Overlay = TextOverlay | ImageOverlay | ShapeOverlay | CoverOverlay;
+export type Overlay = TextOverlay | ImageOverlay | ShapeOverlay | CoverOverlay | LineOverlay | DrawOverlay | RedactOverlay;
+
+/** Light and colour adjustments for a photo page, each 0 when untouched:
+ * -100..100, except sharpness, blur and vignette (0..100). */
+export interface ImageAdjust {
+  exposure: number;
+  brightness: number;
+  contrast: number;
+  highlights: number;
+  shadows: number;
+  saturation: number;
+  vibrance: number;
+  warmth: number;
+  tint: number;
+  sharpness: number;
+  blur: number;
+  vignette: number;
+}
+
+export type ImageFilterId = 'none' | 'bw' | 'noir' | 'sepia' | 'vintage' | 'vivid' | 'warm' | 'cool' | 'dramatic' | 'fade';
+
+/** What the user did to a photo page's own pixels (see imageEdit.ts) —
+ * not anything drawn on top of it. */
+export interface ImageEdits {
+  flipH: boolean;
+  flipV: boolean;
+  /** A fine turn, -45..45 degrees clockwise, zoomed in just enough that no
+   * blank corner shows. */
+  straighten: number;
+  filter: ImageFilterId;
+  /** 0..100 */
+  filterStrength: number;
+  adjust: ImageAdjust;
+  /** Output pixels per point — per pixel of the original photo: 1 keeps its
+   * own size. Applies to the image exports and to the PDF page alike. */
+  scale: number;
+}
 
 export interface WorkPage {
   id: string;
@@ -125,6 +215,8 @@ export interface WorkPage {
   /** Crop box in points relative to the page, or null for the full page. */
   crop: Rect | null;
   overlays: Overlay[];
+  /** Edits to the page's own photo, for a page made from an image. */
+  image?: ImageEdits;
 }
 
 export interface ImageAsset {
@@ -177,6 +269,40 @@ export function displaySize(page: WorkPage): { width: number; height: number } {
     : { width: page.width, height: page.height };
   const quarterTurned = ((page.rotation % 360) + 360) % 360 % 180 !== 0;
   return quarterTurned ? { width: base.height, height: base.width } : base;
+}
+
+/** Whether the document's watermark is drawn on `page`. */
+export function watermarkOn(doc: DocumentState, page: WorkPage): boolean {
+  const wm = doc.watermark;
+  return wm.enabled && (wm.allPages || (doc.pages[wm.singlePageIndex] ?? doc.pages[0])?.id === page.id);
+}
+
+/** Whether a page is a photo the user opened (its pixels can be edited), not a PDF page. */
+export function isImagePage(doc: DocumentState, page: WorkPage | undefined): boolean {
+  return !!page?.sourceId && doc.sources[page.sourceId]?.kind === 'image';
+}
+
+export const NO_ADJUST: ImageAdjust = {
+  exposure: 0,
+  brightness: 0,
+  contrast: 0,
+  highlights: 0,
+  shadows: 0,
+  saturation: 0,
+  vibrance: 0,
+  warmth: 0,
+  tint: 0,
+  sharpness: 0,
+  blur: 0,
+  vignette: 0,
+};
+
+export function defaultImageEdits(): ImageEdits {
+  return { flipH: false, flipV: false, straighten: 0, filter: 'none', filterStrength: 100, adjust: { ...NO_ADJUST }, scale: 1 };
+}
+
+export function imageEditsOf(page: WorkPage): ImageEdits {
+  return page.image ?? defaultImageEdits();
 }
 
 export function defaultWatermark(): WatermarkConfig {

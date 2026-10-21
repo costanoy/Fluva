@@ -8,12 +8,16 @@ import { useApp } from '../state/AppContext';
 import type { FileRejection } from '../state/appTypes';
 import { formatBytes } from '../pdf/loader';
 import { t, type TranslationKey } from '../i18n/translations';
+import { canEncodeWebp } from '../pdf/render';
 import '../styles/empty-state.css';
 
-const CONVERT_TARGETS: Array<{ key: 'pdf' | 'png' | 'jpg'; label: string }> = [
+type ConvertTarget = 'pdf' | 'png' | 'jpg' | 'webp';
+
+const CONVERT_TARGETS: Array<{ key: ConvertTarget; label: string }> = [
   { key: 'pdf', label: 'PDF' },
   { key: 'png', label: 'PNG' },
   { key: 'jpg', label: 'JPG' },
+  { key: 'webp', label: 'WebP' },
 ];
 
 /** What Fluva can already do — kept to the real toolbar/export feature set,
@@ -32,7 +36,7 @@ const FEATURES: Array<{ icon: IconName; labelKey: TranslationKey; subKey?: Trans
 const SHEET_EXT = /^(xlsx?|xlsm|ods|csv|numbers)$/;
 const DOC_EXT = /^(docx?|odt|rtf|txt|pages|md)$/;
 const SLIDES_EXT = /^(pptx?|odp|key)$/;
-const IMAGE_EXT = /^(gif|webp|heic|heif|bmp|tiff?|svg|avif|ico|raw)$/;
+const IMAGE_EXT = /^(heic|heif|tiff?|svg|ico|raw|jxl)$/;
 
 function rejectionText(r: FileRejection): { title: string; body: string } {
   if (r.kind === 'size') {
@@ -79,7 +83,7 @@ export function EmptyState() {
   const { state, actions } = useApp();
   const [dragOver, setDragOver] = useState(false);
   const [converting, setConverting] = useState(false);
-  const [target, setTarget] = useState<'pdf' | 'png' | 'jpg'>('pdf');
+  const [target, setTarget] = useState<ConvertTarget>('pdf');
   const dragDepth = useRef(0);
 
   // Arrastar um arquivo sobre qualquer parte da janela já mostra "Solte para
@@ -237,7 +241,7 @@ export function EmptyState() {
                 <div className="convert-box">
                   <div className="eyebrow">{t('home.convertAllTo')}</div>
                   <div className="seg-group convert-seg">
-                    {CONVERT_TARGETS.map((opt) => (
+                    {CONVERT_TARGETS.filter((opt) => opt.key !== 'webp' || canEncodeWebp()).map((opt) => (
                       <button key={opt.key} aria-pressed={opt.key === target} onClick={() => setTarget(opt.key)}>
                         {opt.label}
                       </button>

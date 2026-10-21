@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import type { DocumentState, Overlay, SourceDoc, WorkPage } from '../pdf/model';
 import { displaySize } from '../pdf/model';
 import { renderEditedPage, renderPageRaw } from '../pdf/render';
+import { baseKey, changesPixels, redactionKey } from '../pdf/imageEdit';
 
 /** The most pixels one page's canvas gets in the live view — plenty for a
  * sharp page on any screen, without a huge bitmap at extreme zoom. */
@@ -58,11 +59,14 @@ export function PageView({ page, source, scale, children, className, style, onCl
   const shown = displaySize(page);
   const pageKeyRef = useRef<string | null>(null);
   const editsKeyRef = useRef<string | null>(null);
+  const photoKeyRef = useRef<string | null>(null);
   // The latest edits and callback, read when a render starts — the effect
   // re-runs on their signature, not on every new document object.
   const latest = useRef({ edits, onRendered });
   latest.current = { edits, onRendered };
   const editsKey = edits?.overlays.length ? edits.signature : null;
+  // What's been done to a photo page's own pixels (see imageEdit.ts).
+  const photoKey = source?.kind === 'image' && changesPixels(page) ? `${baseKey(page)}#${redactionKey(page)}` : null;
 
   useEffect(() => {
     const pageKey = `${page.sourceId ?? ''}:${page.sourceIndex}:${page.id}`;
@@ -70,8 +74,11 @@ export function PageView({ page, source, scale, children, className, style, onCl
     pageKeyRef.current = pageKey;
     const editsChanged = editsKeyRef.current !== editsKey;
     editsKeyRef.current = editsKey;
+    const photoChanged = photoKeyRef.current !== photoKey;
+    photoKeyRef.current = photoKey;
 
     let cancelled = false;
+    let settle = 0;
     if (isFreshPage) setReady(false);
 
     // Re-rasterizing on every intermediate step of a continuous wheel or
@@ -83,13 +90,16 @@ export function PageView({ page, source, scale, children, className, style, onCl
     // change keeps that same bitmap on screen, smoothly scaled, until the
     // zoom settles. A genuinely new page still swaps immediately — there's
     // no valid bitmap to fall back to, so nothing is gained by waiting.
-    const delay = isFreshPage || editsChanged ? 0 : 120;
+    const delay = isFreshPage || editsChanged || photoChanged ? 0 : 120;
+    // A photo whose slider is still moving is drawn small right away, then
+    // sharp once it settles — at full size, every step would lag behind.
+    const progressive = photoChanged && !isFreshPage && !!photoKey;
     // Drawn in device pixels, not CSS pixels: on a 125-200% display the page
     // used to be rendered at a fraction of the screen's resolution and scaled
     // up — soft next to anything the browser draws itself, edited text included.
     const dpr = Math.min(3, window.devicePixelRatio || 1);
     const pixels = Math.min(scale * dpr, Math.sqrt(VIEW_MAX_PIXELS / Math.max(1, page.width * page.height)));
-    const timer = window.setTimeout(() => {
+    const draw = (fast: boolean) => {
       const { edits: current } = latest.current;
       const withEdits = !!editsKey && !!current;
       const render = withEdits
@@ -97,7 +107,7 @@ export function PageView({ page, source, scale, children, className, style, onCl
             console.warn('[Fluva] could not draw the edited page', err);
             return null;
           })
-        : renderPageRaw(source, page, pixels);
+        : renderPageRaw(source, page, pixels, { fast });
       Promise.resolve(render)
         .then(async (rendered) => {
           const usable = rendered ?? (await renderPageRaw(source, page, pixels));
@@ -113,13 +123,18 @@ export function PageView({ page, source, scale, children, className, style, onCl
         .catch(() => {
           if (!cancelled) setReady(true);
         });
+    };
+    const timer = window.setTimeout(() => {
+      draw(progressive);
+      if (progressive) settle = window.setTimeout(() => draw(false), 220);
     }, delay);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      window.clearTimeout(settle);
     };
     // Re-render only when the underlying bitmap would actually change.
-  }, [source, page.id, page.sourceId, page.sourceIndex, page.width, page.height, scale, editsKey]);
+  }, [source, page.id, page.sourceId, page.sourceIndex, page.width, page.height, scale, editsKey, photoKey]);
 
   return (
     <div

@@ -5,11 +5,19 @@ import { prepareImage } from './imagePrep';
 
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
-export const ACCEPTED_MIME = ['application/pdf', 'image/png', 'image/jpeg'];
+/** Images Fluva opens: PNG and JPEG as they are, the rest (WebP, GIF, BMP,
+ * AVIF) read by the browser and turned into one of those two (see imagePrep). */
+export const IMAGE_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp', 'image/avif'];
+
+export const ACCEPTED_MIME = ['application/pdf', ...IMAGE_MIME];
+
+/** For a file picker: some systems only match these formats by extension. */
+export const IMAGE_ACCEPT = `${IMAGE_MIME.join(',')},.webp,.gif,.bmp,.avif`;
+export const FILE_ACCEPT = `application/pdf,${IMAGE_ACCEPT}`;
 
 export function isAcceptedFile(file: File): boolean {
   if (ACCEPTED_MIME.includes(file.type)) return true;
-  return /\.(pdf|png|jpe?g)$/i.test(file.name);
+  return /\.(pdf|png|jpe?g|webp|gif|bmp|avif)$/i.test(file.name);
 }
 
 export function fileKind(file: File): 'pdf' | 'image' {
@@ -99,7 +107,7 @@ async function loadPdfFile(file: File, bytes: Uint8Array): Promise<LoadedFile> {
 
 async function loadImageFile(file: File, original: Uint8Array): Promise<LoadedFile> {
   // Without its metadata (a photo's GPS position, phone, date) and upright.
-  const { bytes, mime, width, height } = await prepareImage(original, file.type || (/\.png$/i.test(file.name) ? 'image/png' : 'image/jpeg'));
+  const { bytes, mime, width, height } = await prepareImage(original, imageMimeOf(file));
 
   const sourceId = newId('src');
   const assetId = newId('asset');
@@ -132,6 +140,13 @@ async function loadImageFile(file: File, original: Uint8Array): Promise<LoadedFi
     pages: [page],
     asset: { id: assetId, bytes, mime, width, height },
   };
+}
+
+/** What kind of image a file says it is, by type or else by extension. */
+export function imageMimeOf(file: File): string {
+  if (IMAGE_MIME.includes(file.type)) return file.type;
+  const ext = /\.([a-z0-9]+)$/i.exec(file.name)?.[1].toLowerCase();
+  return ext === 'png' ? 'image/png' : ext && ['webp', 'gif', 'bmp', 'avif'].includes(ext) ? `image/${ext}` : 'image/jpeg';
 }
 
 export function formatBytes(n: number): string {

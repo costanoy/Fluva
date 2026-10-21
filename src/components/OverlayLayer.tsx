@@ -11,8 +11,9 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { Move } from 'lucide-react';
-import type { ImageAsset, Overlay, WorkPage } from '../pdf/model';
+import type { ImageAsset, LineOverlay, Overlay, WorkPage } from '../pdf/model';
 import { TEXT_LINE_HEIGHT } from '../pdf/geometry';
+import { dashPattern, HIGHLIGHTER_OPACITY, lineBox, lineGeometry, smoothSegments, strokePoints, svgPath, type Pt } from '../pdf/annotations';
 import { familyByKey } from '../pdf/fonts';
 import { useApp } from '../state/AppContext';
 import { t } from '../i18n/translations';
@@ -30,8 +31,12 @@ export function overlayBox(overlay: Overlay): { x: number; y: number; width: num
     const longest = overlay.text.split('\n').reduce((m, l) => Math.max(m, l.length), 0);
     return { x: overlay.x, y: overlay.y, width: longest * overlay.size * 0.55, height: textOverlayHeight(overlay) };
   }
+  if (overlay.kind === 'line') return lineBox(overlay);
   return { x: overlay.x, y: overlay.y, width: overlay.width, height: overlay.height };
 }
+
+/** The selection ring every selected overlay wears. */
+const SELECTED_RING = '0 0 0 1.5px var(--ink-green)';
 
 /**
  * Converts a pointer movement on screen into a movement in page space.
@@ -138,6 +143,8 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
   const box = overlayBox(overlay);
   const dragState = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const resizeState = useRef<{ startX: number; startY: number; w: number; h: number; y: number } | null>(null);
+  /** A line's end being dragged on its own (the other end stays put). */
+  const endState = useRef<{ end: 'start' | 'end'; startX: number; startY: number; line: LineOverlay } | null>(null);
   const [latest, setLatest] = useState<Partial<Overlay> | null>(null);
   // Suppress the position/size transition while actively dragging or resizing —
   // otherwise every pointermove would animate toward its target instead of
@@ -199,6 +206,14 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
 
   const handlePointerMove = useCallback(
     (e: ReactPointerEvent) => {
+      if (endState.current) {
+        const { end, line } = endState.current;
+        const { dx, dy } = screenDeltaToPage(e.clientX - endState.current.startX, e.clientY - endState.current.startY, page.rotation, scale);
+        const patch = (end === 'end' ? { dx: line.dx + dx, dy: line.dy + dy } : { x: line.x + dx, y: line.y + dy, dx: line.dx - dx, dy: line.dy - dy }) as Partial<Overlay>;
+        setLatest(patch);
+        onLiveChange(overlay.id, patch);
+        return;
+      }
       if (resizeState.current) {
         const { dx, dy } = screenDeltaToPage(
           e.clientX - resizeState.current.startX,
@@ -234,9 +249,10 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
   );
 
   const handlePointerUp = useCallback(() => {
-    if ((dragState.current || resizeState.current) && latest) onCommit(overlay.id, latest);
+    if ((dragState.current || resizeState.current || endState.current) && latest) onCommit(overlay.id, latest);
     dragState.current = null;
     resizeState.current = null;
+    endState.current = null;
     setLatest(null);
     setIsInteracting(false);
   }, [latest, onCommit, overlay.id]);
@@ -295,7 +311,7 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
 
   const startResize = useCallback(
     (e: ReactPointerEvent) => {
-      if (overlay.kind === 'text' || overlay.kind === 'cover') return;
+      if (overlay.kind === 'text' || overlay.kind === 'cover' || overlay.kind === 'line') return;
       e.stopPropagation();
       safeSetPointerCapture(e.target as HTMLElement, e.pointerId);
       resizeState.current = { startX: e.clientX, startY: e.clientY, w: overlay.width, h: overlay.height, y: overlay.y };
@@ -304,8 +320,20 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
     [overlay],
   );
 
-  // Covers are static backdrops and carry no rotation of their own.
-  const ownRotation = overlay.kind === 'cover' ? 0 : overlay.rotation;
+  const startEndDrag = useCallback(
+    (end: 'start' | 'end') => (e: ReactPointerEvent) => {
+      if (overlay.kind !== 'line') return;
+      e.stopPropagation();
+      safeSetPointerCapture(e.currentTarget as HTMLElement, e.pointerId);
+      endState.current = { end, startX: e.clientX, startY: e.clientY, line: overlay };
+      setIsInteracting(true);
+    },
+    [overlay],
+  );
+
+  // Covers are static backdrops, and lines, strokes and blurred areas lie
+  // flat: none carries a rotation of its own.
+  const ownRotation = overlay.kind === 'text' || overlay.kind === 'image' || overlay.kind === 'shape' ? overlay.rotation : 0;
 
   // While the page smoothly resizes for a zoom change, the overlay's own
   // position/size follow along at the same pace instead of snapping straight
@@ -331,7 +359,7 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
     // (as text does while its font-size transitions during a zoom), which is
     // what made the selection ring look glitchy. box-shadow paints with the
     // box itself, so it tracks it exactly, every frame.
-    boxShadow: selected ? '0 0 0 1.5px var(--ink-green)' : 'none',
+    boxShadow: selected ? SELECTED_RING : 'none',
     touchAction: 'none',
     transition: smoothTransition,
   };
@@ -458,12 +486,144 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
           height: overlay.height * scale,
         }}
       >
-        {imageSrc && <img src={imageSrc} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', objectFit: 'fill' }} />}
+        {imageSrc && (
+          <img src={imageSrc} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', objectFit: 'fill', opacity: overlay.opacity ?? 1 }} />
+        )}
         {selected && interactive && <ResizeHandle onPointerDown={startResize} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} />}
       </div>
     );
   }
 
+  const resizeHandle = selected && interactive && <ResizeHandle onPointerDown={startResize} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} />;
+
+  if (overlay.kind === 'line') {
+    const box = lineBox(overlay);
+    const { from, to, heads } = lineGeometry(overlay);
+    // Page space into the SVG's own (its box, y down), in points.
+    const at = (p: Pt) => ({ x: p.x - box.x, y: box.y + box.height - p.y });
+    const start = at({ x: overlay.x, y: overlay.y });
+    const end = at({ x: overlay.x + overlay.dx, y: overlay.y + overlay.dy });
+    const f = (p: Pt) => `${p.x} ${p.y}`;
+    return (
+      <div
+        style={{
+          position: 'absolute',
+          left: box.x * scale,
+          top: (page.height - box.y - box.height) * scale,
+          width: box.width * scale,
+          height: box.height * scale,
+          pointerEvents: 'none',
+          transition: smoothTransition,
+        }}
+      >
+        {/* Stretched to its box, never letterboxed: while the box animates
+            (a zoom), the drawing follows it exactly. */}
+        <svg width="100%" height="100%" viewBox={`0 0 ${box.width} ${box.height}`} preserveAspectRatio="none" style={{ display: 'block', overflow: 'visible' }}>
+          {selected && <path d={`M${f(start)}L${f(end)}`} stroke="var(--ink-green)" strokeOpacity={0.35} strokeWidth={overlay.strokeWidth + 6 / scale} strokeLinecap="round" fill="none" />}
+          <path
+            d={`M${f(at(from))}L${f(at(to))}`}
+            stroke={overlay.color}
+            strokeWidth={overlay.strokeWidth}
+            strokeLinecap="round"
+            strokeDasharray={overlay.dashed ? dashPattern(overlay.strokeWidth).join(' ') : undefined}
+            fill="none"
+          />
+          {heads.map((head, i) => (
+            <path key={i} d={`M${head.map((p) => f(at(p))).join('L')}Z`} fill={overlay.color} />
+          ))}
+          {/* What takes the clicks: the line itself, thick enough to hit. */}
+          <path
+            {...pointerHandlers}
+            onClick={(e) => e.stopPropagation()}
+            d={`M${f(start)}L${f(end)}`}
+            stroke="transparent"
+            strokeWidth={Math.max(overlay.strokeWidth * 2, 16 / scale)}
+            strokeLinecap="round"
+            fill="none"
+            style={{ pointerEvents: interactive ? 'stroke' : 'none', cursor: interactive ? 'move' : 'default', touchAction: 'none' }}
+          />
+        </svg>
+        {selected && interactive && (
+          <>
+            <EndHandle at={start} scale={scale} label={t('overlay.lineStart')} onPointerDown={startEndDrag('start')} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} />
+            <EndHandle at={end} scale={scale} label={t('overlay.lineEnd')} onPointerDown={startEndDrag('end')} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} />
+          </>
+        )}
+      </div>
+    );
+  }
+
+  if (overlay.kind === 'draw') {
+    const pad = overlay.strokeWidth;
+    const d = svgPath(smoothSegments(strokePoints(overlay)), (p) => ({ x: p.x - overlay.x + pad, y: overlay.y + overlay.height - p.y + pad }));
+    const w = overlay.width + pad * 2;
+    const h = overlay.height + pad * 2;
+    return (
+      <div
+        style={{
+          position: 'absolute',
+          left: (overlay.x - pad) * scale,
+          top: (page.height - overlay.y - overlay.height - pad) * scale,
+          width: w * scale,
+          height: h * scale,
+          pointerEvents: 'none',
+          boxShadow: selected ? SELECTED_RING : 'none',
+          // Multiplied into the page, like ink — see build.ts.
+          mixBlendMode: overlay.highlighter ? 'multiply' : undefined,
+          transition: smoothTransition,
+        }}
+      >
+        <svg width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: 'block', overflow: 'visible' }}>
+          <path
+            d={d}
+            stroke={overlay.color}
+            strokeWidth={overlay.strokeWidth}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+            opacity={overlay.highlighter ? HIGHLIGHTER_OPACITY : 1}
+          />
+          <path
+            {...pointerHandlers}
+            onClick={(e) => e.stopPropagation()}
+            d={d}
+            stroke="transparent"
+            strokeWidth={Math.max(overlay.strokeWidth, 16 / scale)}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+            style={{ pointerEvents: interactive ? 'stroke' : 'none', cursor: interactive ? 'move' : 'default', touchAction: 'none' }}
+          />
+        </svg>
+        {resizeHandle && <div style={{ position: 'absolute', right: pad * scale, bottom: pad * scale, pointerEvents: 'auto' }}>{resizeHandle}</div>}
+      </div>
+    );
+  }
+
+  if (overlay.kind === 'redact') {
+    // The blur itself is in the page's pixels (see imageEdit.ts); this is
+    // just the area's handle — to select it, move it, resize it.
+    return (
+      <div
+        {...pointerHandlers}
+        onClick={(e) => e.stopPropagation()}
+        className="redact-area"
+        aria-label={t('overlay.redactTitle')}
+        style={{
+          ...base,
+          top: (page.height - overlay.y - overlay.height) * scale,
+          width: overlay.width * scale,
+          height: overlay.height * scale,
+          borderRadius: overlay.shape === 'ellipse' ? '50%' : 2,
+        }}
+      >
+        {resizeHandle}
+      </div>
+    );
+  }
+
+  // As thick as the export draws it: never past half the box.
+  const outline = overlay.outline ? Math.max(0.5, Math.min(overlay.strokeWidth ?? 4, overlay.width / 2, overlay.height / 2)) * scale : 0;
   return (
     <div
       {...pointerHandlers}
@@ -473,12 +633,59 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
         top: (page.height - overlay.y - overlay.height) * scale,
         width: overlay.width * scale,
         height: overlay.height * scale,
-        background: overlay.color,
         borderRadius: overlay.shape === 'circle' ? '50%' : 0,
       }}
     >
-      {selected && interactive && <ResizeHandle onPointerDown={startResize} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} />}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          borderRadius: 'inherit',
+          background: outline ? 'transparent' : overlay.color,
+          // Inside the box, as the export draws it.
+          boxShadow: outline ? `inset 0 0 0 ${outline}px ${overlay.color}` : 'none',
+          opacity: overlay.opacity ?? 1,
+          pointerEvents: 'none',
+          transition: smoothTransition,
+        }}
+      />
+      {resizeHandle}
     </div>
+  );
+}
+
+/** One end of a selected line, dragged on its own. */
+function EndHandle(props: {
+  at: Pt;
+  scale: number;
+  label: string;
+  onPointerDown: (e: ReactPointerEvent) => void;
+  onPointerMove: (e: ReactPointerEvent) => void;
+  onPointerUp: () => void;
+}) {
+  return (
+    <div
+      role="button"
+      aria-label={props.label}
+      onPointerDown={props.onPointerDown}
+      onPointerMove={props.onPointerMove}
+      onPointerUp={props.onPointerUp}
+      onPointerCancel={props.onPointerUp}
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: 'absolute',
+        left: props.at.x * props.scale - 9,
+        top: props.at.y * props.scale - 9,
+        width: 18,
+        height: 18,
+        borderRadius: '50%',
+        background: '#FFFFFF',
+        border: '2px solid var(--ink-green)',
+        cursor: 'crosshair',
+        touchAction: 'none',
+        pointerEvents: 'auto',
+      }}
+    />
   );
 }
 

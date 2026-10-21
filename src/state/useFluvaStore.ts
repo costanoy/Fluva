@@ -2,8 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   defaultWatermark,
   emptyDocument,
+  imageEditsOf,
+  isImagePage,
   newId,
+  NO_ADJUST,
+  type DrawOverlay,
+  type ImageAdjust,
   type ImageAsset,
+  type ImageEdits,
+  type ImageFilterId,
   type Overlay,
   type Rect,
   type SourceDoc,
@@ -11,9 +18,12 @@ import {
   type WatermarkConfig,
   type WorkPage,
 } from '../pdf/model';
-import { formatBytes, isAcceptedFile, loadFile, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
+import { compactImageEdits } from '../pdf/imageEdit';
+import { aspectInPage, clampRect, coversPage, fitAspect, type CropAspect } from '../pdf/crop';
+import { thicknessToPoints } from '../pdf/annotations';
+import { FILE_ACCEPT, formatBytes, IMAGE_ACCEPT, imageMimeOf, isAcceptedFile, loadFile, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
 import { TEXT_BASELINE_RATIO, isCoveredRect } from '../pdf/geometry';
-import { canvasToBlob, rasterizePages, releaseAll } from '../pdf/render';
+import { canvasToBlob, releaseAll } from '../pdf/render';
 import type { CompressLevel, SplitResult } from '../pdf/ops';
 import type { ExportFormat } from '../pdf/exporters';
 import { DEFAULT_FAMILY_KEY, cleanFontName, familyByKey, matchSubstitute } from '../pdf/fonts';
@@ -23,6 +33,8 @@ import {
   applySnapshot,
   snapshot,
   type AppState,
+  type CropDraft,
+  type DrawSettings,
   type FileRejection,
   type QueuedFile,
   type SignOutcome,
@@ -55,6 +67,13 @@ const initialState: AppState = {
   zoom: null,
   effectiveZoom: 1,
   dirty: false,
+  cropDraft: null,
+  comparing: false,
+  draw: {
+    tool: 'pen',
+    pen: { color: '#E5383B', thickness: 12 },
+    highlighter: { color: '#FFE14D', thickness: 45 },
+  },
   exportOpen: false,
   exportFormat: 'pdf',
   signDialogOpen: false,
@@ -201,6 +220,29 @@ export function useFluvaStore() {
 
     const replacePage = (st: AppState, index: number, next: WorkPage): WorkPage[] =>
       st.doc.pages.map((p, i) => (i === index ? next : p));
+
+    /** The crop tool's starting point for a page: where it's cropped now. */
+    const cropDraftFor = (page: WorkPage): CropDraft => {
+      const e = imageEditsOf(page);
+      return {
+        pageId: page.id,
+        rect: page.crop ? clampRect(page.crop, page) : { x: 0, y: 0, width: page.width, height: page.height },
+        rotation: page.rotation,
+        flipH: e.flipH,
+        flipV: e.flipV,
+        straighten: e.straighten,
+        aspect: 'free',
+      };
+    };
+
+    /** A page's photo edits through `fn`, by page id. */
+    const writeImageEdits = (st: AppState, pageId: string, fn: (e: ImageEdits) => ImageEdits): Patch => {
+      const index = st.doc.pages.findIndex((p) => p.id === pageId);
+      const page = st.doc.pages[index];
+      if (!page || !isImagePage(st.doc, page)) return null;
+      const image = compactImageEdits(fn(imageEditsOf(page)));
+      return { doc: { ...st.doc, pages: replacePage(st, index, { ...page, image }) } };
+    };
 
     const updateActivePage = (fn: (page: WorkPage) => WorkPage) =>
       mutate((st) => {
@@ -357,7 +399,7 @@ export function useFluvaStore() {
       // Without its metadata (a photo's GPS position, phone, date) and upright.
       const { prepareImage } = await import('../pdf/imagePrep');
       const original = new Uint8Array(await file.arrayBuffer());
-      const { bytes, mime, width, height } = await prepareImage(original, file.type || (/\.png$/i.test(file.name) ? 'image/png' : 'image/jpeg'));
+      const { bytes, mime, width, height } = await prepareImage(original, imageMimeOf(file));
       return { id: newId('asset'), bytes, mime, width, height };
     };
 
@@ -397,7 +439,7 @@ export function useFluvaStore() {
       },
 
       pickFiles: async () => {
-        const files = await pickFile('application/pdf,image/png,image/jpeg', true);
+        const files = await pickFile(FILE_ACCEPT, true);
         if (files.length) actions.addFiles(files);
       },
 
@@ -476,14 +518,14 @@ export function useFluvaStore() {
 
       /** Same idea as `openReaderFileInEditor`, for the reader's "Alterar
        * formato" shortcut — reuses `convertQueue` verbatim. */
-      convertReaderFile: async (target: 'pdf' | 'png' | 'jpg') => {
+      convertReaderFile: async (target: 'pdf' | 'png' | 'jpg' | 'webp') => {
         const file = stateRef.current.readerFile;
         if (!file) return;
         await actions.convertQueue(target, [{ id: newId('q'), file, name: file.name, size: file.size, kind: fileKind(file) }]);
       },
 
       /** Converts every queued file to the chosen format and downloads the result. */
-      convertQueue: async (target: 'pdf' | 'png' | 'jpg', override?: QueuedFile[]) => {
+      convertQueue: async (target: 'pdf' | 'png' | 'jpg' | 'webp', override?: QueuedFile[]) => {
         const queue = override ?? stateRef.current.queue;
         if (!queue.length) return;
         await withBusy(t('store.convertingTo', { format: target.toUpperCase() }), async (progress) => {
@@ -491,7 +533,8 @@ export function useFluvaStore() {
           // otherwise ship in every screen's initial bundle, including the
           // reader and home screen, which never need them.
           const { buildPdf } = await import('../pdf/build');
-          const { downloadBytes, imageExportScale, zipFiles } = await import('../pdf/exporters');
+          const { rasterizeDocument } = await import('../pdf/rasterize');
+          const { downloadBytes, imageExportScale, IMAGE_MIME, IMAGE_QUALITY, keepsTransparency, zipFiles } = await import('../pdf/exporters');
           const outputs: Array<{ name: string; bytes: Uint8Array }> = [];
 
           for (let i = 0; i < queue.length; i++) {
@@ -509,27 +552,27 @@ export function useFluvaStore() {
             if (target === 'pdf') {
               outputs.push({ name: `${base}.pdf`, bytes: await buildPdf(doc) });
             } else {
-              const baked = await buildPdf(doc);
-              const mime = target === 'png' ? 'image/png' : 'image/jpeg';
-              // An image keeps its own resolution; each page is encoded as soon as it's drawn.
-              await rasterizePages(
-                baked,
+              const mime = IMAGE_MIME[target];
+              // An image keeps its own resolution (and what's see-through in
+              // it); each page is encoded as soon as it's drawn.
+              await rasterizeDocument(
+                doc,
                 (p) => imageExportScale(doc, doc.pages[p]),
                 async (canvas, p, total) => {
-                  const blob = await canvasToBlob(canvas, mime, target === 'jpg' ? 0.92 : undefined);
+                  const blob = await canvasToBlob(canvas, mime, IMAGE_QUALITY[target]);
                   const suffix = total > 1 ? t('file.page', { n: p + 1 }) : '';
                   outputs.push({ name: `${base}${suffix}.${target}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
                 },
+                (p) => keepsTransparency(doc, doc.pages[p], target),
               );
             }
             progress(i + 1, queue.length);
           }
 
           if (outputs.length === 1) {
-            const mime = target === 'pdf' ? 'application/pdf' : target === 'png' ? 'image/png' : 'image/jpeg';
-            downloadBytes(outputs[0].bytes, outputs[0].name, mime);
+            downloadBytes(outputs[0].bytes, outputs[0].name, target === 'pdf' ? 'application/pdf' : IMAGE_MIME[target]);
           } else {
-            // PNG and JPEG are compressed already; deflating them again only costs time.
+            // PNG, JPEG and WebP are compressed already; deflating them again only costs time.
             zipFiles(outputs, `${t('file.converted', { format: target })}.zip`, target === 'pdf' ? 6 : 0);
           }
           set({ toast: t('store.filesConverted', { count: outputs.length, format: target.toUpperCase() }) });
@@ -567,7 +610,19 @@ export function useFluvaStore() {
 
       setActivePage: (index: number) => {
         commitTextRunEditNow();
-        set({ activePageIndex: index, selectedOverlayId: null, editingTextId: null, textRunTarget: null, textRunDraft: null });
+        set((st) => {
+          const page = st.doc.pages[index];
+          return {
+            activePageIndex: index,
+            selectedOverlayId: null,
+            editingTextId: null,
+            textRunTarget: null,
+            textRunDraft: null,
+            comparing: false,
+            // The crop tool follows to the page now open.
+            cropDraft: st.toolMode === 'crop' && page ? cropDraftFor(page) : null,
+          };
+        });
       },
 
       rotateActivePage: () => updateActivePage((page) => ({ ...page, rotation: (page.rotation + 90) % 360 })),
@@ -621,7 +676,8 @@ export function useFluvaStore() {
             y: page.height * 0.7,
             text: t('store.newText'),
             fontKey: st.capturedFontKey ?? DEFAULT_FAMILY_KEY,
-            size: 18,
+            // Readable on a phone photo thousands of pixels wide as on A4.
+            size: Math.round(Math.max(18, Math.min(page.width, page.height) * 0.03)),
             bold: false,
             italic: false,
             color: '#2C2C2A',
@@ -635,7 +691,7 @@ export function useFluvaStore() {
         }),
 
       addImage: async () => {
-        const files = await pickFile('image/png,image/jpeg');
+        const files = await pickFile(IMAGE_ACCEPT);
         if (!files.length) return;
         await withBusy(t('store.insertingImage'), async () => {
           const asset = await registerAsset(files[0]);
@@ -693,6 +749,74 @@ export function useFluvaStore() {
             pendingOverlayId: overlay.id,
           };
         }),
+
+      /** An arrow across the middle of the page, selected to adjust. */
+      addLine: () => {
+        const page = currentPage(stateRef.current);
+        if (!page) return;
+        addOverlayToActivePage({
+          id: newId('ov'),
+          kind: 'line',
+          x: page.width * 0.32,
+          y: page.height * 0.42,
+          dx: page.width * 0.34,
+          dy: page.height * 0.16,
+          color: '#E5383B',
+          strokeWidth: thicknessToPoints(10, page),
+          arrowStart: false,
+          arrowEnd: true,
+          dashed: false,
+        });
+      },
+
+      /** An area of the photo to blur or pixelate, in the middle of the page. */
+      addRedaction: () => {
+        const st = stateRef.current;
+        const page = currentPage(st);
+        if (!page || !isImagePage(st.doc, page)) return;
+        const size = Math.min(page.width, page.height) * 0.3;
+        addOverlayToActivePage({
+          id: newId('ov'),
+          kind: 'redact',
+          x: (page.width - size) / 2,
+          y: (page.height - size) / 2,
+          width: size,
+          height: size,
+          effect: 'blur',
+          shape: 'rect',
+          strength: 60,
+        });
+      },
+
+      /** A finished freehand stroke, on the open page — left unselected, so
+       * the next one can follow straight away. */
+      addStroke: (stroke: Omit<DrawOverlay, 'id' | 'kind'>) =>
+        mutate((st) => {
+          const page = currentPage(st);
+          if (!page) return null;
+          const overlay: DrawOverlay = { id: newId('ov'), kind: 'draw', ...stroke };
+          return { doc: { ...st.doc, pages: replacePage(st, st.activePageIndex, { ...page, overlays: [...page.overlays, overlay] }) } };
+        }),
+
+      /** Strokes rubbed out by the eraser — one gesture, one step to undo
+       * (`done` ends it; see `liveEdit`). */
+      eraseStrokes: (ids: string[], done: boolean) =>
+        liveEdit(
+          'erase',
+          (st) => {
+            const page = currentPage(st);
+            if (!page || !ids.length) return null;
+            const overlays = page.overlays.filter((o) => !ids.includes(o.id));
+            if (overlays.length === page.overlays.length) return null;
+            return { doc: { ...st.doc, pages: replacePage(st, st.activePageIndex, { ...page, overlays }) } };
+          },
+          done,
+        ),
+
+      setDrawSettings: (patch: Partial<DrawSettings>) => set((st) => ({ draw: { ...st.draw, ...patch } })),
+
+      setPenStyle: (pen: 'pen' | 'highlighter', patch: Partial<DrawSettings['pen']>) =>
+        set((st) => ({ draw: { ...st.draw, [pen]: { ...st.draw[pen], ...patch } } })),
 
       selectOverlay: (id: string | null) =>
         set((st) => ({
@@ -905,7 +1029,7 @@ export function useFluvaStore() {
         set((st) => ({ doc: { ...st.doc, watermark: { ...st.doc.watermark, singlePageIndex: index } } })),
 
       uploadWatermarkImage: async () => {
-        const files = await pickFile('image/png,image/jpeg');
+        const files = await pickFile(IMAGE_ACCEPT);
         if (!files.length) return;
         await withBusy(t('store.loadingWatermark'), async () => {
           const asset = await registerAsset(files[0]);
@@ -924,6 +1048,8 @@ export function useFluvaStore() {
       setTool: (toolMode: AppState['toolMode']) =>
         set((st) => ({
           toolMode: st.toolMode === toolMode ? null : toolMode,
+          cropDraft: toolMode === 'crop' && st.toolMode !== 'crop' && currentPage(st) ? cropDraftFor(currentPage(st)!) : null,
+          comparing: false,
           selectedOverlayId: null,
           editingTextId: null,
           compressOutcome: toolMode === 'compress' ? st.compressOutcome : null,
@@ -1083,12 +1209,157 @@ export function useFluvaStore() {
         });
       },
 
+      /* ------------------------------------------------------------- crop */
+
+      /** (Re)starts the crop tool on the open page. */
+      beginCrop: () =>
+        set((st) => {
+          const page = currentPage(st);
+          return page ? { toolMode: 'crop', cropDraft: cropDraftFor(page), selectedOverlayId: null, editingTextId: null } : null;
+        }),
+
+      updateCropDraft: (patch: Partial<CropDraft>) => set((st) => (st.cropDraft ? { cropDraft: { ...st.cropDraft, ...patch } } : null)),
+
+      /** A proportion for the crop box: the biggest box of it, where the box is. */
+      setCropAspect: (aspect: CropAspect) =>
+        set((st) => {
+          const draft = st.cropDraft;
+          const page = currentPage(st);
+          if (!draft || !page) return null;
+          return { cropDraft: { ...draft, aspect, rect: fitAspect(draft.rect, aspectInPage(aspect, page, draft.rotation), page) } };
+        }),
+
+      /** A quarter turn, clockwise (1) or back (-1). */
+      turnCropDraft: (quarter: 1 | -1) =>
+        set((st) => {
+          const draft = st.cropDraft;
+          const page = currentPage(st);
+          if (!draft || !page) return null;
+          const rotation = (((draft.rotation + quarter * 90) % 360) + 360) % 360;
+          // A chosen proportion keeps its shape on screen through the turn.
+          const ratio = draft.aspect === 'original' ? null : aspectInPage(draft.aspect, page, rotation);
+          return { cropDraft: { ...draft, rotation, rect: ratio ? fitAspect(draft.rect, ratio, page) : draft.rect } };
+        }),
+
+      resetCropDraft: () =>
+        set((st) => {
+          const page = currentPage(st);
+          if (!page || !st.cropDraft) return null;
+          return {
+            cropDraft: { ...st.cropDraft, rect: { x: 0, y: 0, width: page.width, height: page.height }, rotation: 0, flipH: false, flipV: false, straighten: 0, aspect: 'free' },
+          };
+        }),
+
+      /** Writes the crop tool's work to the page — one step to undo — and closes it. */
+      applyCrop: () => {
+        const st = stateRef.current;
+        const draft = st.cropDraft;
+        const page = currentPage(st);
+        if (!draft || !page || draft.pageId !== page.id) {
+          set({ toolMode: null, cropDraft: null });
+          return;
+        }
+        const photo = isImagePage(st.doc, page);
+        // A photo is cut on whole pixels; a PDF page to a hundredth of a point.
+        const step = photo ? 1 : 0.01;
+        const snap = (n: number) => Math.round(n / step) * step;
+        const r = draft.rect;
+        const x0 = snap(r.x);
+        const y0 = snap(r.y);
+        const crop = coversPage(r, page) ? null : { x: x0, y: y0, width: Math.max(step, snap(r.x + r.width) - x0), height: Math.max(step, snap(r.y + r.height) - y0) };
+        const image = photo ? compactImageEdits({ ...imageEditsOf(page), flipH: draft.flipH, flipV: draft.flipV, straighten: draft.straighten }) : page.image;
+        const same = JSON.stringify([page.crop, page.rotation, page.image ?? null]) === JSON.stringify([crop, draft.rotation, image ?? null]);
+        if (same) {
+          set({ toolMode: null, cropDraft: null });
+          return;
+        }
+        mutate((cur) => {
+          const index = cur.doc.pages.findIndex((p) => p.id === draft.pageId);
+          if (index < 0) return { toolMode: null, cropDraft: null };
+          const target = cur.doc.pages[index];
+          return {
+            doc: { ...cur.doc, pages: replacePage(cur, index, { ...target, crop, rotation: draft.rotation, image }) },
+            toolMode: null,
+            cropDraft: null,
+          };
+        });
+      },
+
+      cancelCrop: () => set({ toolMode: null, cropDraft: null }),
+
+      /* ----------------------------------------------------------- photo */
+
+      /** One light or colour slider; `recordHistory: false` while it moves (see `liveEdit`). */
+      updateImageAdjust: (key: keyof ImageAdjust, value: number, recordHistory = true) => {
+        const page = currentPage(stateRef.current);
+        if (!page) return;
+        liveEdit(`image:${page.id}:${key}`, (st) => writeImageEdits(st, page.id, (e) => ({ ...e, adjust: { ...e.adjust, [key]: value } })), recordHistory);
+      },
+
+      setImageFilter: (filter: ImageFilterId) => {
+        const page = currentPage(stateRef.current);
+        if (!page) return;
+        mutate((st) => {
+          const target = st.doc.pages.find((p) => p.id === page.id);
+          if (!target || imageEditsOf(target).filter === filter) return null;
+          return writeImageEdits(st, page.id, (e) => ({ ...e, filter, filterStrength: 100 }));
+        });
+      },
+
+      setFilterStrength: (value: number, recordHistory = true) => {
+        const page = currentPage(stateRef.current);
+        if (!page) return;
+        liveEdit(`image:${page.id}:filterStrength`, (st) => writeImageEdits(st, page.id, (e) => ({ ...e, filterStrength: value })), recordHistory);
+      },
+
+      /** Back to the photo's own light and colour, without a filter. */
+      resetImageTone: () => {
+        const page = currentPage(stateRef.current);
+        if (!page) return;
+        mutate((st) => writeImageEdits(st, page.id, (e) => ({ ...e, filter: 'none', filterStrength: 100, adjust: { ...NO_ADJUST } })));
+      },
+
+      /** The photo's output size, as pixels per original pixel — on the
+       * open page, or on every photo page of the document. */
+      setImageScale: (scale: number, everyPhoto = false) =>
+        mutate((st) => {
+          let patch: Patch = null;
+          let cur = st;
+          const targets = everyPhoto ? st.doc.pages.filter((p) => isImagePage(st.doc, p)) : [currentPage(st)].filter((p): p is WorkPage => !!p);
+          for (const target of targets) {
+            const next = writeImageEdits(cur, target.id, (e) => ({ ...e, scale }));
+            if (!next) continue;
+            patch = next;
+            cur = { ...cur, ...next };
+          }
+          return patch;
+        }),
+
+      setComparing: (comparing: boolean) => set({ comparing }),
+
       setCompressLevel: (level: CompressLevel) => set({ compressLevel: level, compressOutcome: null }),
 
       runCompress: async () => {
         const st = stateRef.current;
         await withBusy(t('store.compressing'), async (progress) => {
-          const { compressDocument } = await import('../pdf/ops');
+          const { compressDocument, compressImages } = await import('../pdf/ops');
+          // A photo comes back a photo: images in, images out.
+          if (st.doc.kind === 'image') {
+            const { baseNameFor } = await import('../pdf/exporters');
+            const result = await compressImages(st.doc, baseNameFor(st.doc), st.compressLevel, progress);
+            set({
+              compressOutcome: {
+                level: st.compressLevel,
+                originalSize: result.originalSize,
+                compressedSize: result.compressedSize,
+                reductionPct: result.reductionPct,
+                strategy: 'image',
+                bytes: result.images[0]?.bytes ?? new Uint8Array(),
+                images: result.images,
+              },
+            });
+            return;
+          }
           const result = await compressDocument(st.doc, st.compressLevel, progress);
           set({
             compressOutcome: {
@@ -1106,8 +1377,15 @@ export function useFluvaStore() {
       downloadCompressed: async () => {
         const outcome = stateRef.current.compressOutcome;
         if (!outcome) return;
-        const { baseNameFor, downloadBytes } = await import('../pdf/exporters');
-        downloadBytes(outcome.bytes, `${baseNameFor(stateRef.current.doc)}_comprimido.pdf`, 'application/pdf');
+        const { baseNameFor, downloadBytes, zipFiles } = await import('../pdf/exporters');
+        const base = baseNameFor(stateRef.current.doc);
+        if (outcome.images) {
+          if (outcome.images.length === 1) downloadBytes(outcome.images[0].bytes, outcome.images[0].name, outcome.images[0].mime);
+          // Already compressed: deflating them again only costs time.
+          else zipFiles(outcome.images, `${base}${t('file.compressed')}.zip`, 0);
+          return;
+        }
+        downloadBytes(outcome.bytes, `${base}${t('file.compressed')}.pdf`, 'application/pdf');
       },
 
       /* --------------------------------------------------------------- export */
@@ -1131,7 +1409,7 @@ export function useFluvaStore() {
                   ? t('store.replacedTextKept', { name: base })
                   : t('store.pdfExported', { name: base }),
             });
-          } else if (format === 'png' || format === 'jpg') {
+          } else if (format === 'png' || format === 'jpg' || format === 'webp') {
             await exportAsImages(st.doc, base, format, progress);
             const multi = st.doc.pages.length > 1;
             set({
@@ -1225,6 +1503,19 @@ export function useFluvaStore() {
       if (e.key === 'Enter' && stateRef.current.movingOverlayId) {
         e.preventDefault();
         actions.setMovingOverlay(null);
+        return;
+      }
+
+      // The crop tool: Enter applies it, Esc leaves it as it was.
+      if (stateRef.current.toolMode === 'crop' && (e.key === 'Enter' || e.key === 'Escape')) {
+        e.preventDefault();
+        if (e.key === 'Enter') actions.applyCrop();
+        else actions.cancelCrop();
+        return;
+      }
+      if (stateRef.current.toolMode === 'draw' && e.key === 'Escape') {
+        e.preventDefault();
+        actions.setTool(null);
         return;
       }
 

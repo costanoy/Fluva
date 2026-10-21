@@ -76,6 +76,8 @@ const LEVEL_KEY: Record<CompressLevel, 'compress.levelLow' | 'compress.levelMedi
 export function CompressPanel() {
   const { state, actions } = useApp();
   const outcome = state.compressOutcome;
+  const isPhoto = state.doc.kind === 'image';
+  const formats = outcome?.images ? [...new Set(outcome.images.map((image) => image.name.split('.').pop()!.toUpperCase()))].join(', ') : '';
 
   return (
     <>
@@ -99,7 +101,7 @@ export function CompressPanel() {
         ))}
       </div>
 
-      <div className="panel-note">{t('compress.note')}</div>
+      <div className="panel-note">{isPhoto ? t('compress.noteImage') : t('compress.note')}</div>
 
       <Button variant="primary" block onClick={actions.runCompress} disabled={!!state.busy}>
         {t('compress.runNow')}
@@ -118,16 +120,20 @@ export function CompressPanel() {
           <div className="compress-headline">
             {outcome.reductionPct > 0
               ? t('compress.reduced', { pct: outcome.reductionPct })
-              : t('compress.alreadyMin')}
+              : outcome.compressedSize > outcome.originalSize
+                ? t('compress.notSmaller')
+                : t('compress.alreadyMin')}
           </div>
           <div className="panel-note">
-            {outcome.strategy === 'raster'
-              ? t('compress.rasterNote')
-              : t('compress.rebuildNote')}
+            {outcome.strategy === 'image'
+              ? t('compress.imageNote', { formats })
+              : outcome.strategy === 'raster'
+                ? t('compress.rasterNote')
+                : t('compress.rebuildNote')}
           </div>
           <Button variant="primary" block onClick={actions.downloadCompressed}>
             <Download size={16} strokeWidth={2.75} />
-            {t('compress.downloadPdf')}
+            {outcome.images ? (outcome.images.length > 1 ? t('compress.downloadImages') : t('compress.downloadImage')) : t('compress.downloadPdf')}
           </Button>
         </div>
       )}

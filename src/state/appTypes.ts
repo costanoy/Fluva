@@ -1,12 +1,35 @@
-import type { DocumentState, WatermarkConfig, WorkPage } from '../pdf/model';
+import type { DocumentState, Rect, WatermarkConfig, WorkPage } from '../pdf/model';
 import type { CompressLevel } from '../pdf/ops';
+import type { CropAspect } from '../pdf/crop';
 import type { ExportFormat } from '../pdf/exporters';
 import type { TextItem } from '../pdf/textExtract';
 import type { Lang } from '../i18n/translations';
 import type { SignResult } from '../pdf/sign';
 
 export type Screen = 'empty' | 'reading' | 'editing' | 'beta';
-export type ToolMode = 'merge' | 'split' | 'compress' | 'watermark' | 'reorder' | null;
+export type ToolMode = 'merge' | 'split' | 'compress' | 'watermark' | 'reorder' | 'crop' | 'adjust' | 'resize' | 'draw' | null;
+
+/** The crop tool's work in progress — box, turn, flips, straightening — shown
+ * live and applied to the page in one go, as one step to undo. */
+export interface CropDraft {
+  pageId: string;
+  /** Page space, before the page's turn. */
+  rect: Rect;
+  rotation: number;
+  flipH: boolean;
+  flipV: boolean;
+  straighten: number;
+  aspect: CropAspect;
+}
+
+export type DrawTool = 'pen' | 'highlighter' | 'eraser';
+
+/** The drawing tool's pens, each keeping its own colour and thickness (1..100). */
+export interface DrawSettings {
+  tool: DrawTool;
+  pen: { color: string; thickness: number };
+  highlighter: { color: string; thickness: number };
+}
 
 export type SplitMode = 'range' | 'pages';
 export type SplitRangeSubMode = 'auto' | 'custom';
@@ -67,8 +90,11 @@ export interface CompressOutcome {
   originalSize: number;
   compressedSize: number;
   reductionPct: number;
-  strategy: 'raster' | 'rebuild';
+  /** 'image': a photo document compressed into images again, not a PDF. */
+  strategy: 'raster' | 'rebuild' | 'image';
   bytes: Uint8Array;
+  /** The compressed images, for a photo document. */
+  images?: Array<{ name: string; bytes: Uint8Array; mime: string }>;
 }
 
 /** Undo/redo covers document content only, never transient UI state. */
@@ -114,6 +140,11 @@ export interface AppState {
   effectiveZoom: number;
   /** True once the open document has been edited since it was opened or last exported. */
   dirty: boolean;
+  /** The crop tool's work in progress, while it's open. */
+  cropDraft: CropDraft | null;
+  /** True while "compare" is held: the photo shows without its light, colour and filter. */
+  comparing: boolean;
+  draw: DrawSettings;
   exportOpen: boolean;
   exportFormat: ExportFormat;
   signDialogOpen: boolean;
@@ -157,6 +188,9 @@ export function applySnapshot(state: AppState, snap: HistorySnapshot): Partial<A
     textRunDraft: null,
     pendingOverlayId: null,
     movingOverlayId: null,
+    // A crop in progress was drawn over the page as it was.
+    cropDraft: null,
+    toolMode: state.toolMode === 'crop' ? null : state.toolMode,
   };
 }
 
