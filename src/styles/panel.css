@@ -791,6 +791,59 @@ textarea.text-input {
   gap: 6px;
 }
 
+/* Aplicar/Cancelar e Comparar/Restaurar ficam sempre à vista, mesmo com o
+   painel rolado (no celular ele é uma folha baixa de 42% da tela). */
+.right-panel .panel-actions {
+  position: sticky;
+  bottom: -22px;
+  z-index: 2;
+  margin: 0 -20px -22px;
+  padding: 10px 20px 22px;
+  background: var(--paper);
+  border-top: 1.5px solid var(--divider);
+}
+
+.right-panel .btn[aria-pressed='true'] {
+  background: var(--ink-green-tint);
+}
+
+.range-field-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.range-field-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid var(--divider);
+  border-radius: 50%;
+  background: #FFFFFF;
+  color: var(--graphite-muted);
+  cursor: pointer;
+}
+
+.range-field-reset:hover {
+  border-color: var(--graphite);
+  color: var(--graphite);
+}
+
+@media (pointer: coarse) {
+  .range-field-reset {
+    width: 30px;
+    height: 30px;
+  }
+
+  /* Um dedo precisa de mais do que os 20px do botão deslizante. */
+  .range-field input[type='range'] {
+    height: 36px;
+  }
+}
+
 /* No celular o painel vira uma bottom sheet sobre o documento. */
 @media (max-width: 768px) {
   .right-panel {
@@ -804,6 +857,12 @@ textarea.text-input {
     gap: 12px;
     /* Keep the document preview the larger half of a phone screen. */
     max-height: 42vh;
+  }
+
+  .right-panel .panel-actions {
+    bottom: -14px;
+    margin: 0 -14px -14px;
+    padding: 10px 14px 14px;
   }
 
   .panel-grip {

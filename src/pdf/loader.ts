@@ -107,7 +107,7 @@ async function loadPdfFile(file: File, bytes: Uint8Array): Promise<LoadedFile> {
 
 async function loadImageFile(file: File, original: Uint8Array): Promise<LoadedFile> {
   // Without its metadata (a photo's GPS position, phone, date) and upright.
-  const { bytes, mime, width, height } = await prepareImage(original, imageMimeOf(file));
+  const { bytes, mime, width, height, opaque, original: opened } = await prepareImage(original, imageMimeOf(file));
 
   const sourceId = newId('src');
   const assetId = newId('asset');
@@ -122,6 +122,8 @@ async function loadImageFile(file: File, original: Uint8Array): Promise<LoadedFi
     pageCount: 1,
     pageSizes: [{ width, height }],
     pageRotations: [0],
+    opaque,
+    original: opened,
   };
 
   const page: WorkPage = {
@@ -144,8 +146,12 @@ async function loadImageFile(file: File, original: Uint8Array): Promise<LoadedFi
 
 /** What kind of image a file says it is, by type or else by extension. */
 export function imageMimeOf(file: File): string {
-  if (IMAGE_MIME.includes(file.type)) return file.type;
-  const ext = /\.([a-z0-9]+)$/i.exec(file.name)?.[1].toLowerCase();
+  return IMAGE_MIME.includes(file.type) ? file.type : imageMimeFromName(file.name);
+}
+
+/** The image type a file name's extension stands for (JPEG when unsure). */
+export function imageMimeFromName(name: string): string {
+  const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1].toLowerCase();
   return ext === 'png' ? 'image/png' : ext && ['webp', 'gif', 'bmp', 'avif'].includes(ext) ? `image/${ext}` : 'image/jpeg';
 }
 

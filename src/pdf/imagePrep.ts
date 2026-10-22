@@ -1,4 +1,5 @@
 import { t } from '../i18n/translations';
+import { MAX_CANVAS_PIXELS } from './geometry';
 
 /**
  * Prepares an image the user brings in — a page of its own, an image placed on
@@ -23,33 +24,44 @@ export interface PreparedImage {
   mime: 'image/png' | 'image/jpeg';
   width: number;
   height: number;
+  /** Nothing see-through in it. */
+  opaque: boolean;
+  /** The file as given, when `bytes` were written from another format. */
+  original?: { bytes: Uint8Array; mime: string };
 }
 
 /** The format the bytes really are, whatever the file name or browser said. */
-export function sniffImageMime(bytes: Uint8Array): 'image/png' | 'image/jpeg' | null {
+export function sniffImageMime(bytes: Uint8Array): string | null {
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (startsWith(bytes, 'RIFF') && String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP') return 'image/webp';
+  if (startsWith(bytes, 'GIF8')) return 'image/gif';
+  if (bytes[0] === 0x42 && bytes[1] === 0x4d) return 'image/bmp';
+  const brand = String.fromCharCode(...bytes.subarray(4, 12));
+  if (brand === 'ftypavif' || brand === 'ftypavis') return 'image/avif';
   return null;
 }
 
 export async function prepareImage(input: Uint8Array, declaredMime: string): Promise<PreparedImage> {
   const sniffed = sniffImageMime(input);
-  // WebP, GIF, BMP, AVIF: neither a PDF nor most of this app reads them.
-  if (!sniffed && declaredMime !== 'image/png' && declaredMime !== 'image/jpeg') return transcode(input, declaredMime);
-  const mime = sniffed ?? (declaredMime === 'image/png' ? 'image/png' : 'image/jpeg');
+  // Anything that isn't really a PNG or a JPEG — WebP, GIF, BMP, AVIF, or a
+  // download named ".jpg" that is a WebP inside — is read by the browser and
+  // written again as one of the two (neither a PDF nor this app reads the rest).
+  if (sniffed !== 'image/png' && sniffed !== 'image/jpeg') return { ...(await transcode(input, sniffed ?? declaredMime)), original: { bytes: input, mime: sniffed ?? declaredMime } };
+  const mime = sniffed;
 
   if (mime === 'image/png') {
     const bytes = stripPngMetadata(input) ?? input;
-    return { bytes, mime, ...(await readImageSize(bytes, mime)) };
+    return { bytes, mime, opaque: !pngMayBeTranslucent(bytes), ...(await readImageSize(bytes, mime)) };
   }
 
   const stripped = stripJpegMetadata(input);
-  if (!stripped) return { bytes: input, mime, ...(await readImageSize(input, mime)) };
+  if (!stripped) return { bytes: input, mime, opaque: true, ...(await readImageSize(input, mime)) };
   if (stripped.orientation > 1 && stripped.orientation <= 8) {
     const upright = await redrawUpright(stripped.bytes, stripped.orientation).catch(() => null);
     if (upright) return upright;
   }
-  return { bytes: stripped.bytes, mime, ...(await readImageSize(stripped.bytes, mime)) };
+  return { bytes: stripped.bytes, mime, opaque: true, ...(await readImageSize(stripped.bytes, mime)) };
 }
 
 export async function readImageSize(bytes: Uint8Array, mime: string): Promise<{ width: number; height: number }> {
@@ -167,7 +179,7 @@ async function redrawUpright(bytes: Uint8Array, orientation: number): Promise<Pr
     const turned = orientation >= 5;
     // Some browsers (iOS Safari) silently draw nothing on a canvas past
     // ~16.7 megapixels; a bigger photo is scaled to fit rather than lost.
-    const shrink = Math.min(1, Math.sqrt(16_000_000 / (bitmap.width * bitmap.height)));
+    const shrink = Math.min(1, Math.sqrt(MAX_CANVAS_PIXELS / (bitmap.width * bitmap.height)));
     const w = Math.max(1, Math.round(bitmap.width * shrink));
     const h = Math.max(1, Math.round(bitmap.height * shrink));
     const canvas = document.createElement('canvas');
@@ -190,13 +202,30 @@ async function redrawUpright(bytes: Uint8Array, orientation: number): Promise<Pr
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
     canvas.width = canvas.height = 0;
     if (!blob) throw new Error('encode failed');
-    return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: 'image/jpeg', width: turned ? h : w, height: turned ? w : h };
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: 'image/jpeg', width: turned ? h : w, height: turned ? w : h, opaque: true };
   } finally {
     bitmap.close();
   }
 }
 
 /* ------------------------------------------------------- other formats */
+
+/**
+ * Whether a file opened in another format (see `transcode`) may say where,
+ * when or with what it was taken: a WebP with an EXIF or XMP chunk — and,
+ * not being read here, any GIF, BMP or AVIF.
+ */
+export function carriesMetadata(s: Uint8Array, mime: string): boolean {
+  if (mime !== 'image/webp') return true;
+  if (!(startsWith(s, 'RIFF') && s[8] === 0x57 && s[9] === 0x45 && s[10] === 0x42 && s[11] === 0x50)) return true;
+  for (let p = 12; p + 8 <= s.length; ) {
+    const tag = String.fromCharCode(s[p], s[p + 1], s[p + 2], s[p + 3]);
+    if (tag === 'EXIF' || tag === 'XMP ') return true;
+    const size = (s[p + 4] | (s[p + 5] << 8) | (s[p + 6] << 16) | (s[p + 7] << 24)) >>> 0;
+    p += 8 + size + (size & 1);
+  }
+  return false;
+}
 
 /** Whether a WebP is the lossless kind (a screenshot, a logo): its pixels
  * are exact, and turning them into a JPEG would smudge them. */
@@ -227,7 +256,7 @@ async function transcode(input: Uint8Array, mime: string): Promise<PreparedImage
   }
   try {
     // Same ceiling as a turned photo (see redrawUpright).
-    const shrink = Math.min(1, Math.sqrt(16_000_000 / (bitmap.width * bitmap.height)));
+    const shrink = Math.min(1, Math.sqrt(MAX_CANVAS_PIXELS / (bitmap.width * bitmap.height)));
     const width = Math.max(1, Math.round(bitmap.width * shrink));
     const height = Math.max(1, Math.round(bitmap.height * shrink));
     const canvas = document.createElement('canvas');
@@ -236,27 +265,42 @@ async function transcode(input: Uint8Array, mime: string): Promise<PreparedImage
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error(t('loader.imageReadError'));
     ctx.drawImage(bitmap, 0, 0, width, height);
-    let exact = mime === 'image/gif' || mime === 'image/bmp' || losslessWebp(input);
-    if (!exact) {
-      const data = ctx.getImageData(0, 0, width, height).data;
-      for (let i = 3; i < data.length; i += 4) {
-        if (data[i] !== 255) {
-          exact = true;
-          break;
-        }
+    let translucent = false;
+    const data = ctx.getImageData(0, 0, width, height).data;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] !== 255) {
+        translucent = true;
+        break;
       }
     }
+    const exact = translucent || mime === 'image/gif' || mime === 'image/bmp' || losslessWebp(input);
     const out: 'image/png' | 'image/jpeg' = exact ? 'image/png' : 'image/jpeg';
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, out, out === 'image/jpeg' ? 0.92 : undefined));
     canvas.width = canvas.height = 0;
     if (!blob) throw new Error(t('loader.imageReadError'));
-    return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: out, width, height };
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: out, width, height, opaque: !translucent };
   } finally {
     bitmap.close();
   }
 }
 
 /* ------------------------------------------------------------------- PNG */
+
+/** Whether a PNG can have see-through pixels at all: an alpha channel
+ * (colour types 4 and 6) or a tRNS chunk. Read from the file, so a photo
+ * saved as PNG is known to be opaque without looking at its pixels. */
+function pngMayBeTranslucent(s: Uint8Array): boolean {
+  if (s.length < 26) return true;
+  if (s[25] === 4 || s[25] === 6) return true;
+  for (let p = 8; p + 8 <= s.length; ) {
+    const length = ((s[p] << 24) | (s[p + 1] << 16) | (s[p + 2] << 8) | s[p + 3]) >>> 0;
+    const type = String.fromCharCode(s[p + 4], s[p + 5], s[p + 6], s[p + 7]);
+    if (type === 'tRNS') return true;
+    if (type === 'IDAT' || type === 'IEND') return false;
+    p += 12 + length;
+  }
+  return false;
+}
 
 /** Chunks that hold metadata rather than picture: EXIF, text (author,
  * software, comments, sometimes GPS), timestamps. */

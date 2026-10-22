@@ -16,11 +16,12 @@ export const TEXT_BASELINE_RATIO = 0.85;
 export const TEXT_LINE_HEIGHT = 1.2;
 
 /** The biggest canvas (in pixels) drawn in one go. iOS Safari silently paints
- * nothing past ~16.7 megapixels; elsewhere the cap just keeps one page's
- * memory in check. */
+ * nothing past ~16.7 megapixels; on an Android phone a few canvases that big
+ * at once can get the whole page killed for memory; elsewhere the cap just
+ * keeps one page's memory in check. */
 export const MAX_CANVAS_PIXELS =
   typeof navigator !== 'undefined' &&
-  (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
+  (/iP(hone|ad|od)|Android/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
     ? 16_000_000
     : 50_000_000;
 

@@ -61,7 +61,8 @@ export interface FileRejection {
 }
 
 export type SignOutcome =
-  | ({ ok: true; fileName: string } & SignResult)
+  /** `saved` is false when the save sheet was closed without saving. */
+  | ({ ok: true; fileName: string; saved: boolean } & SignResult)
   | { ok: false; wrongPassword: boolean; message: string };
 
 export interface BusyState {

@@ -3,10 +3,11 @@ import type { DocumentState, Overlay, SourceDoc, WorkPage } from '../pdf/model';
 import { displaySize } from '../pdf/model';
 import { renderEditedPage, renderPageRaw } from '../pdf/render';
 import { baseKey, changesPixels, redactionKey } from '../pdf/imageEdit';
+import { MAX_CANVAS_PIXELS } from '../pdf/geometry';
 
 /** The most pixels one page's canvas gets in the live view — plenty for a
  * sharp page on any screen, without a huge bitmap at extreme zoom. */
-const VIEW_MAX_PIXELS = 24_000_000;
+const VIEW_MAX_PIXELS = Math.min(24_000_000, MAX_CANVAS_PIXELS);
 
 /**
  * Geometry shared by the page canvas and its overlay layer.
@@ -117,6 +118,9 @@ export function PageView({ page, source, scale, children, className, style, onCl
           target.width = usable.width;
           target.height = usable.height;
           target.getContext('2d')!.drawImage(usable, 0, 0);
+          // A fresh canvas every time: let its memory go now, not at the
+          // next garbage collection (a phone can't hold many).
+          usable.width = usable.height = 0;
           setReady(true);
           latest.current.onRendered?.(rendered && withEdits ? editsKey : null);
         })
@@ -150,7 +154,10 @@ export function PageView({ page, source, scale, children, className, style, onCl
         ...style,
       }}
     >
-      <div style={{ ...planeTransform(page, scale), transition: 'width .16s ease-out, height .16s ease-out, transform .16s ease-out' }}>
+      {/* The page is the document itself, not the app around it: a Windows
+          contrast theme mustn't repaint its colours (or drop the shadows the
+          crop and the selection are drawn with) — the export wouldn't. */}
+      <div style={{ ...planeTransform(page, scale), transition: 'width .16s ease-out, height .16s ease-out, transform .16s ease-out', forcedColorAdjust: 'none' }}>
         <canvas
           ref={canvasRef}
           style={{

@@ -203,10 +203,12 @@
 
 /* ------------------------------------------------------------- desenhar */
 
+/* Sem z-index: um contexto de empilhamento próprio isolaria o marca-texto
+   da página, e ele não se multiplicaria com ela. Vem por último no plano,
+   então já fica por cima de tudo. */
 .draw-layer {
   position: absolute;
   inset: 0;
-  z-index: 3;
   touch-action: none;
   cursor: crosshair;
 }
@@ -220,4 +222,26 @@
 .redact-area:hover {
   outline: 1.5px dashed rgba(255, 255, 255, .9);
   outline-offset: -1.5px;
+}
+
+/* Alças das anotações: pequenas no desenho, grandes ao toque. */
+.overlay-handle::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+
+@media (pointer: coarse) {
+  .overlay-handle::before {
+    inset: -16px;
+  }
+}
+
+/* Sem mouse não há "passar por cima": a área desfocada mostra sempre onde
+   tocar para mexer nela. */
+@media (hover: none) {
+  .redact-area {
+    outline: 1.5px dashed rgba(255, 255, 255, .9);
+    outline-offset: -1.5px;
+  }
 }

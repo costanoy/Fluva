@@ -58,9 +58,26 @@ export function SignDialog() {
 
   const downloadAgain = async () => {
     if (!done) return;
-    const { downloadBytes } = await import('../pdf/exporters');
-    downloadBytes(done.bytes, done.fileName, 'application/pdf');
+    setError(null);
+    try {
+      const { downloadBytes } = await import('../pdf/exporters');
+      await downloadBytes(done.bytes, done.fileName, 'application/pdf');
+      setDone({ ...done, saved: true });
+    } catch (err) {
+      if (!(err instanceof Error && err.name === 'SaveCancelled')) setError(err instanceof Error ? err.message : String(err));
+    }
   };
+
+  const errorAlert = error && (
+    <div className="alert" role="alert">
+      <span className="alert-mark" aria-hidden="true">
+        !
+      </span>
+      <div className="alert-body">
+        <div className="alert-text">{error}</div>
+      </div>
+    </div>
+  );
 
   const header = (
     <div className="sign-head">
@@ -79,7 +96,7 @@ export function SignDialog() {
             {done ? t('sign.doneTitle') : t('sign.title')}
           </h2>
           <div className={done ? 'sign-head-sub sign-head-sub-done' : 'sign-head-sub'}>
-            {done ? t('sign.doneDownload', { file: done.fileName }) : state.doc.name}
+            {done ? t(done.saved ? 'sign.doneDownload' : 'sign.doneNotSaved', { file: done.fileName }) : state.doc.name}
           </div>
         </div>
       </div>
@@ -117,6 +134,7 @@ export function SignDialog() {
             ))}
           </div>
           <div className="sign-validator">{t('sign.validatorNote')}</div>
+          {errorAlert}
         </div>
         <div className="dialog-foot">
           <button className="link-btn" onClick={downloadAgain}>
@@ -219,16 +237,7 @@ export function SignDialog() {
           )}
         </div>
 
-        {error && (
-          <div className="alert" role="alert">
-            <span className="alert-mark" aria-hidden="true">
-              !
-            </span>
-            <div className="alert-body">
-              <div className="alert-text">{error}</div>
-            </div>
-          </div>
-        )}
+        {errorAlert}
       </div>
 
       <div className="dialog-foot">

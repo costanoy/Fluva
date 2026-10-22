@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { ArrowUpRight, EyeOff, Image as ImageIcon, PenLine, Pipette, RotateCw, Square, Trash2, Type } from 'lucide-react';
+import { ArrowUpRight, Contrast, EyeOff, FlipHorizontal2, FlipVertical2, Image as ImageIcon, PenLine, Pipette, RotateCw, Square, Trash2, Type } from 'lucide-react';
+import { imageEditsOf } from '../pdf/model';
 import { Button } from '../components/Button';
 import { useApp } from '../state/AppContext';
 import { isImagePage } from '../pdf/model';
@@ -123,6 +124,32 @@ export function RightPanel() {
                   <EyeOff size={19} strokeWidth={2.75} />
                   {t('panel.redact')}
                 </Button>
+              )}
+
+              {isImagePage(state.doc, page) && (
+                <>
+                  <div className="panel-label">{t('panel.invert')}</div>
+                  <div className="tile-row">
+                    <button type="button" className="tile-btn" title={t('panel.invertHTitle')} onClick={() => actions.flipPhoto('h')}>
+                      <FlipHorizontal2 size={18} strokeWidth={2.5} />
+                      <span>{t('panel.invertH')}</span>
+                    </button>
+                    <button type="button" className="tile-btn" title={t('panel.invertVTitle')} onClick={() => actions.flipPhoto('v')}>
+                      <FlipVertical2 size={18} strokeWidth={2.5} />
+                      <span>{t('panel.invertV')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="tile-btn"
+                      title={t('panel.invertColorsTitle')}
+                      aria-pressed={imageEditsOf(page).invert}
+                      onClick={actions.toggleInvertColors}
+                    >
+                      <Contrast size={18} strokeWidth={2.5} />
+                      <span>{t('panel.invertColors')}</span>
+                    </button>
+                  </div>
+                </>
               )}
 
               <div className="panel-divider" />

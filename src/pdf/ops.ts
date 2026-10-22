@@ -3,6 +3,7 @@ import { isImagePage, watermarkOn, type DocumentState, type WorkPage } from './m
 import { buildPdf } from './build';
 import { canEncodeWebp, canvasToBlob, imageExportScale, rasterizePages } from './render';
 import { rasterizeDocument } from './rasterize';
+import { carriesMetadata } from './imagePrep';
 import { t } from '../i18n/translations';
 
 export interface SplitResult {
@@ -143,25 +144,34 @@ export async function compressImages(
     doc,
     (i) => imageExportScale(doc, doc.pages[i]),
     async (canvas, i, total) => {
-      const translucent = hasTransparency(canvas);
-      let [mime, ext] = !translucent ? ['image/jpeg', 'jpg'] : webp ? ['image/webp', 'webp'] : ['image/png', 'png'];
+      // A format that can't be see-through (a JPEG) is trusted over its
+      // pixels read back, which Safari's anti-fingerprinting noise would make
+      // look see-through; one that can be (a PNG with an alpha channel, often
+      // fully opaque all the same) is looked at.
+      const page = doc.pages[i];
+      const source = page?.sourceId ? doc.sources[page.sourceId] : undefined;
+      const translucent = source?.kind === 'image' ? (source.opaque ? false : hasTransparency(canvas)) : false;
+      // WebP holds at most 16383 pixels a side (see exporters.ts).
+      const webpFits = webp && Math.max(canvas.width, canvas.height) <= 16383;
+      let [mime, ext] = !translucent ? ['image/jpeg', 'jpg'] : webpFits ? ['image/webp', 'webp'] : ['image/png', 'png'];
       let bytes: Uint8Array = new Uint8Array(await (await canvasToBlob(canvas, mime, mime === 'image/png' ? undefined : quality)).arrayBuffer());
       // Never bigger than what was opened: a photo left as it was, which
       // doesn't get any smaller, is handed back as it came.
-      const original = untouchedPhoto(doc, doc.pages[i]);
+      const original = untouchedPhoto(doc, page);
       if (original && original.bytes.byteLength <= bytes.byteLength) {
         bytes = original.bytes;
         mime = original.mime;
-        ext = original.mime === 'image/png' ? 'png' : 'jpg';
+        ext = original.mime === 'image/jpeg' ? 'jpg' : original.mime.split('/')[1];
       }
-      const page = total > 1 ? t('file.page', { n: String(i + 1).padStart(pad, '0') }) : '';
-      images.push({ name: `${baseName}${page}${t('file.compressed')}.${ext}`, bytes, mime });
+      const suffix = total > 1 ? t('file.page', { n: String(i + 1).padStart(pad, '0') }) : '';
+      images.push({ name: `${baseName}${suffix}${t('file.compressed')}.${ext}`, bytes, mime });
       onProgress?.(i + 1, total);
     },
     (i) => isImagePage(doc, doc.pages[i]),
   );
   const sources = new Set(doc.pages.map((p) => p.sourceId).filter((id): id is string => !!id));
-  const originalSize = [...sources].reduce((n, id) => n + (doc.sources[id]?.bytes.byteLength ?? 0), 0);
+  // Measured against the files as opened (a WebP, not the JPEG made from it).
+  const originalSize = [...sources].reduce((n, id) => n + ((doc.sources[id]?.original ?? doc.sources[id])?.bytes.byteLength ?? 0), 0);
   const compressedSize = images.reduce((n, image) => n + image.bytes.byteLength, 0);
   return {
     images,
@@ -175,7 +185,11 @@ export async function compressImages(
 function untouchedPhoto(doc: DocumentState, page: WorkPage | undefined) {
   if (!page || !isImagePage(doc, page)) return null;
   if (page.overlays.length || page.image || page.crop || page.rotation % 360 || watermarkOn(doc, page)) return null;
-  return doc.sources[page.sourceId!] ?? null;
+  const source = doc.sources[page.sourceId!];
+  if (!source) return null;
+  // The file as opened only when nothing in it can say where or when it was
+  // taken: every other file this app writes leaves that out.
+  return source.original && !carriesMetadata(source.original.bytes, source.original.mime) ? source.original : { bytes: source.bytes, mime: source.mime };
 }
 
 function hasTransparency(canvas: HTMLCanvasElement): boolean {

@@ -1,4 +1,5 @@
-import { imageEditsOf, NO_ADJUST, type ImageAdjust, type ImageEdits, type ImageFilterId, type Rect, type RedactOverlay, type WorkPage } from './model';
+import { displaySize, imageEditsOf, NO_ADJUST, type ImageAdjust, type ImageEdits, type ImageFilterId, type Rect, type RedactOverlay, type WorkPage } from './model';
+import { MAX_CANVAS_PIXELS } from './geometry';
 
 /**
  * The photo editor's pixels: everything done to a photo page itself — turned
@@ -21,9 +22,9 @@ export const ADJUST_KEYS = Object.keys(NO_ADJUST) as Array<keyof ImageAdjust>;
 
 export const FILTER_IDS: ImageFilterId[] = ['none', 'bw', 'noir', 'sepia', 'vintage', 'vivid', 'warm', 'cool', 'dramatic', 'fade'];
 
-/** Whether light, colour or a filter change the photo. */
+/** Whether light, colour, a filter or the negative change the photo. */
 export function tonalActive(e: ImageEdits): boolean {
-  return (e.filter !== 'none' && e.filterStrength > 0) || ADJUST_KEYS.some((k) => e.adjust[k] !== 0);
+  return (e.filter !== 'none' && e.filterStrength > 0) || !!e.invert || ADJUST_KEYS.some((k) => e.adjust[k] !== 0);
 }
 
 /** Whether the photo is flipped or turned straight. */
@@ -44,7 +45,7 @@ export function changesPixels(page: WorkPage): boolean {
 /** Changes whenever the photo itself (without its redactions) would. */
 export function baseKey(page: WorkPage): string {
   const e = imageEditsOf(page);
-  const parts: Array<string | number> = [+e.flipH, +e.flipV, e.straighten, e.filter, e.filterStrength, ...ADJUST_KEYS.map((k) => e.adjust[k])];
+  const parts: Array<string | number> = [+e.flipH, +e.flipV, e.straighten, e.filter, e.filterStrength, +!!e.invert, ...ADJUST_KEYS.map((k) => e.adjust[k])];
   // The vignette frames what's shown, so it follows the crop.
   if (e.adjust.vignette && page.crop) parts.push(page.crop.x, page.crop.y, page.crop.width, page.crop.height);
   return parts.join('|');
@@ -83,26 +84,102 @@ export function shownRect(page: WorkPage): Rect {
 export function paintPhoto(ctx: CanvasRenderingContext2D, image: CanvasImageSource, page: WorkPage, frame: Frame, tonal = true): void {
   const e = imageEditsOf(page);
   const { width: W, height: H } = page;
-  const { ppp } = frame;
+  // The canvas's own (whole-pixel) size, not `frame.ppp`: the photo has to
+  // reach its very edge, or the last row comes out half see-through.
+  const sx = ctx.canvas.width / frame.width;
+  const sy = ctx.canvas.height / frame.height;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   // Page space with a top-left origin, the way the canvas counts.
-  ctx.setTransform(ppp, 0, 0, ppp, -frame.x * ppp, -(H - frame.y - frame.height) * ppp);
+  ctx.setTransform(sx, 0, 0, sy, -frame.x * sx, -(H - frame.y - frame.height) * sy);
   ctx.translate(W / 2, H / 2);
   const theta = (e.straighten * Math.PI) / 180;
+  const k = theta ? zoomToFill(W, H, theta) : 1;
   if (theta) {
     ctx.rotate(theta);
-    // A hair more than needed, so no sliver of blank edge survives rounding.
-    const k = fillScale(W, H, theta) * (1 + 2 / Math.min(W, H));
     ctx.scale(k, k);
   }
   ctx.scale(e.flipH ? -1 : 1, e.flipV ? -1 : 1);
-  ctx.drawImage(image, -W / 2, -H / 2, W, H);
+  ctx.drawImage(downsized(image, W, H, Math.max(sx, sy) * k), -W / 2, -H / 2, W, H);
   ctx.restore();
   if (tonal && tonalActive(e)) tone(ctx, page, e, frame);
+}
+
+/** How much a photo turned by `theta` is zoomed: just enough to cover its
+ * box, and a hair more, so no sliver of blank edge survives rounding. */
+function zoomToFill(w: number, h: number, theta: number): number {
+  return fillScale(w, h, theta) * (1 + 2 / Math.min(w, h));
+}
+
+/** Whether this browser's canvas has `imageSmoothingQuality` — asked of the
+ * prototype: a context it's been set on answers yes either way. */
+const SMOOTHS_WELL = typeof CanvasRenderingContext2D !== 'undefined' && 'imageSmoothingQuality' in CanvasRenderingContext2D.prototype;
+
+/**
+ * `image` (`w` × `h`) halved until it's within twice the size it's drawn at
+ * (`scale` of it) — for a browser that ignores `imageSmoothingQuality`
+ * (Firefox), whose single bilinear pass would shrink a detailed photo with
+ * jagged edges and moiré. Elsewhere the image as it is.
+ */
+function downsized(image: CanvasImageSource, w: number, h: number, scale: number): CanvasImageSource {
+  if (SMOOTHS_WELL || scale >= 0.5) return image;
+  let source = image;
+  let cw = w;
+  let ch = h;
+  while (scale * (w / cw) < 0.5 && cw > 2 && ch > 2) {
+    const next = document.createElement('canvas');
+    next.width = Math.max(1, Math.round(cw / 2));
+    next.height = Math.max(1, Math.round(ch / 2));
+    next.getContext('2d')!.drawImage(source, 0, 0, next.width, next.height);
+    source = next;
+    cw = next.width;
+    ch = next.height;
+  }
+  return source;
+}
+
+/**
+ * Where a blurred or pixelated area has to go for it to keep covering the
+ * same part of the photo, once the photo is flipped or turned straight
+ * differently (`before` to `after`): its corners taken through the photo's
+ * old transform back to the photo, and through the new one onto the page —
+ * the box around them. Not cut to the page: a part a straightened photo's
+ * zoom pushes off it comes back, still covered, when it's turned back.
+ */
+export function followPhoto(area: Rect, page: { width: number; height: number }, before: ImageEdits, after: ImageEdits): Rect {
+  const { width: W, height: H } = page;
+  // The photo's transform in page space with a top-left origin, as paintPhoto draws it.
+  const transform = (e: ImageEdits) => {
+    const theta = (e.straighten * Math.PI) / 180;
+    return { cos: Math.cos(theta), sin: Math.sin(theta), k: theta ? zoomToFill(W, H, theta) : 1, fx: e.flipH ? -1 : 1, fy: e.flipV ? -1 : 1 };
+  };
+  const from = transform(before);
+  const to = transform(after);
+  const move = (x: number, y: number) => {
+    // Back to the photo...
+    let dx = x - W / 2;
+    let dy = y - H / 2;
+    let px = (from.cos * dx + from.sin * dy) / from.k;
+    let py = (-from.sin * dx + from.cos * dy) / from.k;
+    px *= from.fx;
+    py *= from.fy;
+    // ...and onto the page again.
+    px *= to.fx;
+    py *= to.fy;
+    dx = to.k * (to.cos * px - to.sin * py);
+    dy = to.k * (to.sin * px + to.cos * py);
+    return { x: W / 2 + dx, y: H / 2 + dy };
+  };
+  const top = H - area.y - area.height;
+  const corners = [move(area.x, top), move(area.x + area.width, top), move(area.x, top + area.height), move(area.x + area.width, top + area.height)];
+  const x0 = Math.min(...corners.map((c) => c.x));
+  const x1 = Math.max(...corners.map((c) => c.x));
+  const y0 = Math.min(...corners.map((c) => c.y));
+  const y1 = Math.max(...corners.map((c) => c.y));
+  return { x: x0, y: H - y1, width: Math.max(1, x1 - x0), height: Math.max(1, y1 - y0) };
 }
 
 /* ------------------------------------------------------------ light, colour */
@@ -190,7 +267,7 @@ function filterCurve(f: FilterDef): Float32Array | null {
   return lut;
 }
 
-/** Light, colour, filter, vignette, then blur and sharpening, in place. */
+/** Light, colour, filter, vignette, the negative, then blur and sharpening, in place. */
 function tone(ctx: CanvasRenderingContext2D, page: WorkPage, e: ImageEdits, frame: Frame) {
   const { width: w, height: h } = ctx.canvas;
   if (!w || !h) return;
@@ -210,6 +287,7 @@ function tone(ctx: CanvasRenderingContext2D, page: WorkPage, e: ImageEdits, fram
   const toneOn = shadows !== 0 || highlights !== 0;
   const satOn = sat !== 0 || vib !== 0;
   const filterOn = strength > 0;
+  const invert = !!e.invert;
 
   // The vignette darkens toward the edges of what's shown, not of the whole page.
   const vig = a.vignette / 100;
@@ -309,6 +387,13 @@ function tone(ctx: CanvasRenderingContext2D, page: WorkPage, e: ImageEdits, fram
         }
       }
 
+      // The negative of all of it, as finished.
+      if (invert) {
+        r = 1 - (r < 0 ? 0 : r > 1 ? 1 : r);
+        g = 1 - (g < 0 ? 0 : g > 1 ? 1 : g);
+        b = 1 - (b < 0 ? 0 : b > 1 ? 1 : b);
+      }
+
       // A clamped array rounds and clamps on its own.
       d[i] = r * 255;
       d[i + 1] = g * 255;
@@ -330,7 +415,8 @@ function tone(ctx: CanvasRenderingContext2D, page: WorkPage, e: ImageEdits, fram
 let canvasBlur: boolean | null = null;
 
 /** Whether this browser's canvas can blur (its `filter`) — done on the
- * graphics card, many times faster than here. Safari only learned it in 18. */
+ * graphics card, many times faster than here. Safari can't: there the blur
+ * is done here, in three box passes. */
 function canvasBlurs(): boolean {
   if (canvasBlur !== null) return canvasBlur;
   try {
@@ -482,20 +568,23 @@ function unpremultiply(d: Uint8ClampedArray) {
  */
 export function applyRedactions(ctx: CanvasRenderingContext2D, page: WorkPage, frame: Frame): void {
   const { width: cw, height: ch } = ctx.canvas;
+  // Mapped the way paintPhoto maps the photo.
+  const sx = cw / frame.width;
+  const sy = ch / frame.height;
   for (const r of redactionsOf(page)) {
     const { ppp } = frame;
-    const left = (r.x - frame.x) * ppp;
-    const top = (frame.y + frame.height - (r.y + r.height)) * ppp;
+    const left = (r.x - frame.x) * sx;
+    const top = (frame.y + frame.height - (r.y + r.height)) * sy;
     const x0 = Math.max(0, Math.floor(left));
     const y0 = Math.max(0, Math.floor(top));
-    const x1 = Math.min(cw, Math.ceil(left + r.width * ppp));
-    const y1 = Math.min(ch, Math.ceil(top + r.height * ppp));
+    const x1 = Math.min(cw, Math.ceil(left + r.width * sx));
+    const y1 = Math.min(ch, Math.ceil(top + r.height * sy));
     if (x1 <= x0 || y1 <= y0) continue;
     const scale = Math.sqrt(Math.max(1, r.width * r.height));
     const s = Math.min(100, Math.max(1, r.strength)) / 100;
     // Inside the area: everything, or only its ellipse.
-    const rx = (r.width * ppp) / 2;
-    const ry = (r.height * ppp) / 2;
+    const rx = (r.width * sx) / 2;
+    const ry = (r.height * sy) / 2;
     const cx = left + rx;
     const cy = top + ry;
     const inside =
@@ -584,7 +673,9 @@ export function filterTiles(photo: HTMLCanvasElement, page: WorkPage): Record<Im
   const frame: Frame = { x: 0, y: 0, width: page.width, height: page.height, ppp: photo.width / page.width };
   const out = {} as Record<ImageFilterId, string>;
   for (const filter of FILTER_IDS) {
-    ctx.clearRect(0, 0, tile.width, tile.height);
+    // On white, like the page: a see-through logo isn't shown on black.
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, tile.width, tile.height);
     ctx.drawImage(photo, 0, 0);
     // Blur and sharpening are left out: at this size they only cost time.
     const edits: ImageEdits = { ...e, filter, filterStrength: filter === e.filter ? e.filterStrength : 100, adjust: { ...e.adjust, blur: 0, sharpness: 0 } };
@@ -595,9 +686,72 @@ export function filterTiles(photo: HTMLCanvasElement, page: WorkPage): Record<Im
   return out;
 }
 
+/**
+ * How far a photo can be made bigger or smaller: down to a pixel on its
+ * shorter side; up to 8×, what one image can hold, and WebP's 16383 pixels a
+ * side — but never below its own size, so 100% always keeps it as it is.
+ */
+export function photoScaleLimits(page: WorkPage): { min: number; max: number } {
+  const base = displaySize(page);
+  const max = Math.min(8, Math.sqrt(MAX_CANVAS_PIXELS / (base.width * base.height)), 16383 / Math.max(base.width, base.height));
+  return { min: 1 / Math.min(base.width, base.height), max: Math.max(1, max) };
+}
+
+/**
+ * `page` with its photo's geometry — flips and straightening — set to
+ * `after`'s, the blurred areas moving along with what they cover.
+ */
+export function withPhotoGeometry(page: WorkPage, after: ImageEdits): WorkPage {
+  const before = imageEditsOf(page);
+  const moved = before.flipH !== after.flipH || before.flipV !== after.flipV || before.straighten !== after.straighten;
+  return {
+    ...page,
+    image: compactImageEdits(after),
+    overlays: moved ? page.overlays.map((o) => (o.kind === 'redact' ? { ...o, ...followPhoto(o, page, before, after) } : o)) : page.overlays,
+  };
+}
+
+/**
+ * `page` mirrored as it's seen (`axis`): what's shown comes out the mirror
+ * image of itself. So the photo flips, its straightening turns the other way
+ * (a mirror of a turn is the opposite turn), and its crop moves to the other
+ * side, framing the same part, mirrored. What's drawn on the photo — text,
+ * shapes, strokes — isn't mirrored: it moves with the crop, staying where it
+ * was in the frame.
+ */
+export function flippedPhoto(page: WorkPage, axis: 'h' | 'v'): WorkPage {
+  const before = imageEditsOf(page);
+  // On a page turned a quarter, left to right as seen is the page's top to bottom.
+  const quarter = (((page.rotation % 360) + 360) % 360) % 180 !== 0;
+  const across = quarter ? axis === 'v' : axis === 'h';
+  const after: ImageEdits = {
+    ...before,
+    flipH: across ? !before.flipH : before.flipH,
+    flipV: across ? before.flipV : !before.flipV,
+    straighten: before.straighten ? -before.straighten : 0,
+  };
+  const c = page.crop;
+  const crop = c && (across ? { ...c, x: page.width - c.x - c.width } : { ...c, y: page.height - c.y - c.height });
+  const dx = c && crop ? crop.x - c.x : 0;
+  const dy = c && crop ? crop.y - c.y : 0;
+  const flipped = withPhotoGeometry(page, after);
+  return {
+    ...flipped,
+    crop,
+    overlays: flipped.overlays.map((o) => (o.kind === 'redact' || (!dx && !dy) ? o : { ...o, x: o.x + dx, y: o.y + dy })),
+  };
+}
+
+/** Whether blurring this page's photo falls to the slow box blur (no canvas
+ * blur in this browser): the live view then works on fewer pixels. */
+export function blursSlowly(page: WorkPage): boolean {
+  const a = imageEditsOf(page).adjust;
+  return (a.blur > 0 || a.sharpness > 0 || redactionsOf(page).some((r) => r.effect === 'blur')) && !canvasBlurs();
+}
+
 /** `e`, or nothing when it's all defaults — a page keeps no edits it doesn't have. */
 export function compactImageEdits(e: ImageEdits): ImageEdits | undefined {
   const untouched =
-    !e.flipH && !e.flipV && Math.abs(e.straighten) < 0.001 && e.filter === 'none' && Math.abs(e.scale - 1) < 1e-9 && ADJUST_KEYS.every((k) => e.adjust[k] === 0);
+    !e.flipH && !e.flipV && Math.abs(e.straighten) < 0.001 && e.filter === 'none' && !e.invert && Math.abs(e.scale - 1) < 1e-9 && ADJUST_KEYS.every((k) => e.adjust[k] === 0);
   return untouched ? undefined : e;
 }

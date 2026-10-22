@@ -1,7 +1,7 @@
 import { openWithPdfJs, type OpenedPdf, type PDFDocumentProxy, type PDFPageProxy } from './pdfjs';
 import type { DocumentState, Overlay, Rect, SourceDoc, WorkPage } from './model';
 import { MAX_CANVAS_PIXELS } from './geometry';
-import { applyRedactions, baseKey, changesPixels, paintPhoto, redactionsOf, type Frame } from './imageEdit';
+import { applyRedactions, baseKey, blursSlowly, changesPixels, paintPhoto, redactionsOf, type Frame } from './imageEdit';
 import { t } from '../i18n/translations';
 
 /** pdf.js documents are expensive to open, so keep one live proxy per source. */
@@ -51,6 +51,8 @@ export function releaseAll() {
  * render follows once the slider stops (see PageView). */
 const VIEW_EDIT_PIXELS = 6_000_000;
 const FAST_EDIT_PIXELS = 1_200_000;
+/** The same, where a blur is done without the graphics card (Safari). */
+const SLOW_BLUR_PIXELS = 2_500_000;
 
 /** Photos already toned for the live view, by source, size and edits — a
  * blurred area dragged around redraws only itself, not the whole photo. */
@@ -157,9 +159,17 @@ export async function renderPageRaw(
   scale: number,
   { fast = false }: { fast?: boolean } = {},
 ): Promise<HTMLCanvasElement> {
+  const fullW = Math.max(1, Math.round(page.width * scale));
+  const fullH = Math.max(1, Math.round(page.height * scale));
+  // An edited photo is worked on at a size the main thread keeps up with —
+  // and handed back at that size: the view scales it up for free, where a
+  // full-size copy on every step of a slider piled up hundreds of megabytes.
+  const edited = source?.kind === 'image' && changesPixels(page);
+  const budget = fast ? FAST_EDIT_PIXELS : blursSlowly(page) ? SLOW_BLUR_PIXELS : VIEW_EDIT_PIXELS;
+  const k = edited ? Math.min(1, Math.sqrt(budget / (fullW * fullH))) : 1;
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(page.width * scale));
-  canvas.height = Math.max(1, Math.round(page.height * scale));
+  canvas.width = Math.max(1, Math.round(fullW * k));
+  canvas.height = Math.max(1, Math.round(fullH * k));
   const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -181,24 +191,16 @@ export async function renderPageRaw(
       ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
       return canvas;
     }
-    // Edited: toned at a size the main thread keeps up with, then the
-    // blurred or pixelated areas on a copy, then drawn to fill the canvas.
-    const budget = fast ? FAST_EDIT_PIXELS : VIEW_EDIT_PIXELS;
-    const k = Math.min(1, Math.sqrt(budget / (canvas.width * canvas.height)));
-    const width = Math.max(1, Math.round(canvas.width * k));
-    const height = Math.max(1, Math.round(canvas.height * k));
-    let shown = editedPhoto(source, page, bmp, width, height);
-    if (redactionsOf(page).length) {
-      const work = document.createElement('canvas');
-      work.width = width;
-      work.height = height;
-      const workCtx = work.getContext('2d', { willReadFrequently: true })!;
-      workCtx.drawImage(shown, 0, 0);
-      applyRedactions(workCtx, page, fullFrame(page, width));
-      shown = work;
-    }
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(shown, 0, 0, canvas.width, canvas.height);
+    // Edited: toned (cached), then the blurred or pixelated areas — on the
+    // photo itself, as the export does — then the white page behind it.
+    const { width, height } = canvas;
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(editedPhoto(source, page, bmp, width, height), 0, 0);
+    if (redactionsOf(page).length) applyRedactions(ctx, page, fullFrame(page, width));
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+    ctx.globalCompositeOperation = 'source-over';
   }
   return canvas;
 }

@@ -11,6 +11,7 @@ import { CropFrame } from '../components/CropFrame';
 import { DrawLayer } from '../components/DrawLayer';
 import { displaySize, imageEditsOf, isImagePage, NO_ADJUST, type WorkPage } from '../pdf/model';
 import { aspectInPage } from '../pdf/crop';
+import { withPhotoGeometry } from '../pdf/imageEdit';
 import { pageEdits } from '../pdf/replacement';
 import '../styles/canvas.css';
 
@@ -52,9 +53,10 @@ export function EditorCanvas() {
     let shown = activePage;
     if (draft) {
       shown = { ...shown, crop: null, rotation: draft.rotation };
-      if (photo) shown = { ...shown, image: { ...imageEditsOf(shown), flipH: draft.flipH, flipV: draft.flipV, straighten: draft.straighten } };
+      // The blurred areas go along, the way applying the crop will move them.
+      if (photo) shown = withPhotoGeometry(shown, { ...imageEditsOf(shown), flipH: draft.flipH, flipV: draft.flipV, straighten: draft.straighten });
     }
-    if (state.comparing && shown.image) shown = { ...shown, image: { ...shown.image, filter: 'none', adjust: NO_ADJUST } };
+    if (state.comparing && shown.image) shown = { ...shown, image: { ...shown.image, filter: 'none', invert: false, adjust: NO_ADJUST } };
     return shown;
   }, [activePage, draft, photo, state.comparing]);
 
@@ -96,11 +98,14 @@ export function EditorCanvas() {
   // could otherwise put the freshly opened one off-screen.
   useEffect(() => {
     setPan({ x: 0, y: 0 });
-  }, [state.activePageIndex, state.doc.name]);
+  }, [state.activePageIndex, state.doc.name, state.toolMode === 'crop']);
 
   const shown = page ? displaySize(page) : { width: 1, height: 1 };
   const fitWidthScale = (available.width - CANVAS_PADDING * 2) / shown.width;
-  const defaultScale = Number.isFinite(fitWidthScale) && fitWidthScale > 0 ? Math.min(fitWidthScale, MAX_INITIAL_SCALE) : 1;
+  // While cropping, the whole page has to be in view: its edges are what's
+  // being moved (a portrait photo fitted to the width runs off the bottom).
+  const fitScale = state.toolMode === 'crop' ? Math.min(fitWidthScale, (available.height - CANVAS_PADDING * 2) / shown.height) : fitWidthScale;
+  const defaultScale = Number.isFinite(fitScale) && fitScale > 0 ? Math.min(fitScale, MAX_INITIAL_SCALE) : 1;
   const safeScale = clampScale(zoom ?? defaultScale);
 
   // The toolbar's zoom slider reads this back — it needs the resolved value,

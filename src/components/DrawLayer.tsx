@@ -13,7 +13,7 @@ import { t } from '../i18n/translations';
 export function DrawLayer({ page, scale }: { page: WorkPage; scale: number }) {
   const { state, actions } = useApp();
   const ref = useRef<HTMLDivElement>(null);
-  const gesture = useRef<{ points: Pt[]; erased: Set<string> } | null>(null);
+  const gesture = useRef<{ pointerId: number; pointerType: string; points: Pt[]; erased: Set<string> } | null>(null);
   const [points, setPoints] = useState<Pt[] | null>(null);
   const [hover, setHover] = useState<Pt | null>(null);
   const { tool } = state.draw;
@@ -48,9 +48,24 @@ export function DrawLayer({ page, scale }: { page: WorkPage; scale: number }) {
   const onPointerDown = (e: ReactPointerEvent) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.stopPropagation();
+    // A second finger mid-stroke is a pinch or a resting palm, not more
+    // ink: the stroke in progress is dropped rather than zigzagged between
+    // the two. A new first pointer of the same kind, though, means the last
+    // one was let go where this never heard of it: this one draws.
+    const g = gesture.current;
+    if (g) {
+      if (g.pointerId !== e.pointerId) {
+        if (tool === 'eraser') {
+          if (g.erased.size) actions.eraseStrokes([], true);
+        }
+        gesture.current = null;
+        setPoints(null);
+      }
+      if (!(e.isPrimary && e.pointerType === g.pointerType && g.pointerId !== e.pointerId)) return;
+    }
     safeSetPointerCapture(e.currentTarget as HTMLElement, e.pointerId);
     const p = toPage(e.clientX, e.clientY);
-    gesture.current = { points: [p], erased: new Set() };
+    gesture.current = { pointerId: e.pointerId, pointerType: e.pointerType, points: [p], erased: new Set() };
     if (tool === 'eraser') eraseAt(p);
     else setPoints([p]);
   };
@@ -59,7 +74,7 @@ export function DrawLayer({ page, scale }: { page: WorkPage; scale: number }) {
     const p = toPage(e.clientX, e.clientY);
     if (tool === 'eraser') setHover(p);
     const g = gesture.current;
-    if (!g) return;
+    if (!g || g.pointerId !== e.pointerId) return;
     e.stopPropagation();
     if (tool === 'eraser') {
       eraseAt(p);
@@ -73,10 +88,10 @@ export function DrawLayer({ page, scale }: { page: WorkPage; scale: number }) {
     setPoints([...g.points]);
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: ReactPointerEvent) => {
     const g = gesture.current;
+    if (!g || g.pointerId !== e.pointerId) return;
     gesture.current = null;
-    if (!g) return;
     if (tool === 'eraser') {
       if (g.erased.size) actions.eraseStrokes([], true);
       return;
@@ -101,7 +116,14 @@ export function DrawLayer({ page, scale }: { page: WorkPage; scale: number }) {
       onPointerLeave={() => setHover(null)}
       onClick={(e) => e.stopPropagation()}
     >
-      <svg width="100%" height="100%" viewBox={`0 0 ${page.width} ${page.height}`} preserveAspectRatio="none" style={{ display: 'block', overflow: 'visible' }}>
+      {/* Multiplied into the page while it's drawn, as it will be once drawn. */}
+      <svg
+        width="100%"
+        height="100%"
+        viewBox={`0 0 ${page.width} ${page.height}`}
+        preserveAspectRatio="none"
+        style={{ display: 'block', overflow: 'visible', mixBlendMode: tool === 'highlighter' ? 'multiply' : undefined }}
+      >
         {live && (
           <path
             d={live}
@@ -111,7 +133,6 @@ export function DrawLayer({ page, scale }: { page: WorkPage; scale: number }) {
             strokeLinejoin="round"
             fill="none"
             opacity={tool === 'highlighter' ? HIGHLIGHTER_OPACITY : 1}
-            style={{ mixBlendMode: tool === 'highlighter' ? 'multiply' : undefined }}
           />
         )}
         {tool === 'eraser' && hover && (

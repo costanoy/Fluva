@@ -26,6 +26,12 @@ export interface SourceDoc {
   pageSizes: Array<{ width: number; height: number }>;
   /** Rotation baked into the source page itself (/Rotate), in degrees. */
   pageRotations: number[];
+  /** A photo with nothing see-through in it (known from its format, not by
+   * reading pixels back — which Safari's anti-fingerprinting blurs). */
+  opaque?: boolean;
+  /** The file as opened, when `bytes` is a PNG or JPEG written from it (a
+   * WebP, GIF, BMP or AVIF): what "before" and "as it came" mean. */
+  original?: { bytes: Uint8Array; mime: string };
 }
 
 export interface Rect {
@@ -196,6 +202,9 @@ export interface ImageEdits {
   /** 0..100 */
   filterStrength: number;
   adjust: ImageAdjust;
+  /** In negative: every colour of the finished photo turned into its
+   * opposite — over a filter, not instead of one. */
+  invert: boolean;
   /** Output pixels per point — per pixel of the original photo: 1 keeps its
    * own size. Applies to the image exports and to the PDF page alike. */
   scale: number;
@@ -298,7 +307,7 @@ export const NO_ADJUST: ImageAdjust = {
 };
 
 export function defaultImageEdits(): ImageEdits {
-  return { flipH: false, flipV: false, straighten: 0, filter: 'none', filterStrength: 100, adjust: { ...NO_ADJUST }, scale: 1 };
+  return { flipH: false, flipV: false, straighten: 0, filter: 'none', filterStrength: 100, adjust: { ...NO_ADJUST }, invert: false, scale: 1 };
 }
 
 export function imageEditsOf(page: WorkPage): ImageEdits {

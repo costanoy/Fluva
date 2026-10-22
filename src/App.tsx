@@ -5,6 +5,7 @@ import { EmptyState } from './screens/EmptyState';
 import { ReaderScreen } from './screens/ReaderScreen';
 import { BetaScreen } from './screens/BetaScreen';
 import { t } from './i18n/translations';
+import { imageMimeFromName } from './pdf/loader';
 
 // The editor pulls in pdf-lib/docx/fontkit — deferred behind a dynamic import
 // so opening the reader or the home screen never fetches them, only actually
@@ -38,7 +39,7 @@ function AppShell() {
       for (let index = 0; index < names.length; index++) {
         const bytes = await invoke<ArrayBuffer>('take_opened_file', { index });
         const name = names[index];
-        const type = /\.pdf$/i.test(name) ? 'application/pdf' : /\.png$/i.test(name) ? 'image/png' : 'image/jpeg';
+        const type = /\.pdf$/i.test(name) ? 'application/pdf' : imageMimeFromName(name);
         files.push(new File([bytes], name, { type }));
       }
       if (files.length) actions.addFiles(files);
@@ -57,6 +58,21 @@ function AppShell() {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [state.dirty]);
+
+  // A file dropped where nothing takes it (the editor, the reader) would make
+  // the browser — or the desktop app's WebView — leave Fluva to show that
+  // file, unsaved edits and all. The start screen handles its own drops.
+  useEffect(() => {
+    const swallow = (e: DragEvent) => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+    };
+    window.addEventListener('dragover', swallow);
+    window.addEventListener('drop', swallow);
+    return () => {
+      window.removeEventListener('dragover', swallow);
+      window.removeEventListener('drop', swallow);
+    };
+  }, []);
 
   // Leave a breadcrumb in the browser's own history the moment a document is
   // opened (editing) or a file is loaded into the reader, so its Back button

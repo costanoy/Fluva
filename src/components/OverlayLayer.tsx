@@ -38,6 +38,10 @@ export function overlayBox(overlay: Overlay): { x: number; y: number; width: num
 /** The selection ring every selected overlay wears. */
 const SELECTED_RING = '0 0 0 1.5px var(--ink-green)';
 
+/** How wide (CSS px) a line or stroke is to the pointer: a fingertip needs
+ * far more than a mouse does. */
+const HIT_PX = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches ? 40 : 16;
+
 /**
  * Converts a pointer movement on screen into a movement in page space.
  * The plane is rotated by the page rotation, so screen deltas must be un-rotated
@@ -145,6 +149,21 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
   const resizeState = useRef<{ startX: number; startY: number; w: number; h: number; y: number } | null>(null);
   /** A line's end being dragged on its own (the other end stays put). */
   const endState = useRef<{ end: 'start' | 'end'; startX: number; startY: number; line: LineOverlay } | null>(null);
+  /** The one pointer a gesture follows: a second finger landing mid-drag
+   * (a pinch, a resting palm) neither restarts nor steers it. A new first
+   * pointer of the same kind, though, means the one followed was let go
+   * where this never heard of it: that gesture is over, and this one starts. */
+  const pointerRef = useRef<{ id: number; type: string } | null>(null);
+  const takePointer = (e: ReactPointerEvent) => {
+    const held = pointerRef.current;
+    if (held && !(e.isPrimary && e.pointerType === held.type)) return false;
+    dragState.current = null;
+    resizeState.current = null;
+    endState.current = null;
+    pointerRef.current = { id: e.pointerId, type: e.pointerType };
+    return true;
+  };
+  const ownPointer = (e?: ReactPointerEvent) => !e || pointerRef.current === null || e.pointerId === pointerRef.current.id;
   const [latest, setLatest] = useState<Partial<Overlay> | null>(null);
   // Suppress the position/size transition while actively dragging or resizing —
   // otherwise every pointermove would animate toward its target instead of
@@ -197,15 +216,18 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
         }
         return;
       }
+      if (!takePointer(e)) return;
       safeSetPointerCapture(e.target as HTMLElement, e.pointerId);
       dragState.current = { startX: e.clientX, startY: e.clientY, originX: overlay.x, originY: overlay.y };
       setIsInteracting(true);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [interactive, onSelect, overlay.id, overlay.kind, overlay.x, overlay.y, selected, isMovingThis],
   );
 
   const handlePointerMove = useCallback(
     (e: ReactPointerEvent) => {
+      if (!ownPointer(e)) return;
       if (endState.current) {
         const { end, line } = endState.current;
         const { dx, dy } = screenDeltaToPage(e.clientX - endState.current.startX, e.clientY - endState.current.startY, page.rotation, scale);
@@ -245,17 +267,24 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
       setLatest(patch);
       onLiveChange(overlay.id, patch);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [onLiveChange, overlay.id, page.rotation, scale],
   );
 
-  const handlePointerUp = useCallback(() => {
-    if ((dragState.current || resizeState.current || endState.current) && latest) onCommit(overlay.id, latest);
-    dragState.current = null;
-    resizeState.current = null;
-    endState.current = null;
-    setLatest(null);
-    setIsInteracting(false);
-  }, [latest, onCommit, overlay.id]);
+  const handlePointerUp = useCallback(
+    (e?: ReactPointerEvent) => {
+      if (!ownPointer(e)) return;
+      pointerRef.current = null;
+      if ((dragState.current || resizeState.current || endState.current) && latest) onCommit(overlay.id, latest);
+      dragState.current = null;
+      resizeState.current = null;
+      endState.current = null;
+      setLatest(null);
+      setIsInteracting(false);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [latest, onCommit, overlay.id],
+  );
 
   /**
    * The little move handle at a selected text overlay's corner — same idea as
@@ -269,10 +298,12 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
     (e: ReactPointerEvent) => {
       if (!interactive) return;
       e.stopPropagation();
+      if (!takePointer(e)) return;
       safeSetPointerCapture(e.currentTarget as HTMLElement, e.pointerId);
       dragState.current = { startX: e.clientX, startY: e.clientY, originX: overlay.x, originY: overlay.y };
       setIsInteracting(true);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [interactive, overlay.x, overlay.y],
   );
 
@@ -280,11 +311,16 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
   // `handlePointerUp` already does that. A plain tap (no movement) instead
   // drops into "Mover texto" mode, so grabbing the text body itself works
   // right after, matching the handle's behavior before this run was replaced.
-  const handleMoveHandlePointerUp = useCallback(() => {
-    const moved = !!latest;
-    handlePointerUp();
-    if (!moved) actions.setMovingOverlay(overlay.id);
-  }, [latest, handlePointerUp, actions, overlay.id]);
+  const handleMoveHandlePointerUp = useCallback(
+    (e: ReactPointerEvent) => {
+      if (!ownPointer(e)) return;
+      const moved = !!latest;
+      handlePointerUp(e);
+      if (!moved) actions.setMovingOverlay(overlay.id);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [latest, handlePointerUp, actions, overlay.id],
+  );
 
   const handleTextInput = useCallback(
     (e: ReactFormEvent<HTMLDivElement>) => {
@@ -313,6 +349,7 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
     (e: ReactPointerEvent) => {
       if (overlay.kind === 'text' || overlay.kind === 'cover' || overlay.kind === 'line') return;
       e.stopPropagation();
+      if (!takePointer(e)) return;
       safeSetPointerCapture(e.target as HTMLElement, e.pointerId);
       resizeState.current = { startX: e.clientX, startY: e.clientY, w: overlay.width, h: overlay.height, y: overlay.y };
       setIsInteracting(true);
@@ -324,6 +361,7 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
     (end: 'start' | 'end') => (e: ReactPointerEvent) => {
       if (overlay.kind !== 'line') return;
       e.stopPropagation();
+      if (!takePointer(e)) return;
       safeSetPointerCapture(e.currentTarget as HTMLElement, e.pointerId);
       endState.current = { end, startX: e.clientX, startY: e.clientY, line: overlay };
       setIsInteracting(true);
@@ -537,7 +575,7 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
             onClick={(e) => e.stopPropagation()}
             d={`M${f(start)}L${f(end)}`}
             stroke="transparent"
-            strokeWidth={Math.max(overlay.strokeWidth * 2, 16 / scale)}
+            strokeWidth={Math.max(overlay.strokeWidth * 2, HIT_PX / scale)}
             strokeLinecap="round"
             fill="none"
             style={{ pointerEvents: interactive ? 'stroke' : 'none', cursor: interactive ? 'move' : 'default', touchAction: 'none' }}
@@ -588,7 +626,7 @@ function OverlayItem({ overlay, page, assets, scale, selected, onSelect, onLiveC
             onClick={(e) => e.stopPropagation()}
             d={d}
             stroke="transparent"
-            strokeWidth={Math.max(overlay.strokeWidth, 16 / scale)}
+            strokeWidth={Math.max(overlay.strokeWidth, HIT_PX / scale)}
             strokeLinecap="round"
             strokeLinejoin="round"
             fill="none"
@@ -661,10 +699,11 @@ function EndHandle(props: {
   label: string;
   onPointerDown: (e: ReactPointerEvent) => void;
   onPointerMove: (e: ReactPointerEvent) => void;
-  onPointerUp: () => void;
+  onPointerUp: (e: ReactPointerEvent) => void;
 }) {
   return (
     <div
+      className="overlay-handle"
       role="button"
       aria-label={props.label}
       onPointerDown={props.onPointerDown}
@@ -692,10 +731,11 @@ function EndHandle(props: {
 function ResizeHandle(props: {
   onPointerDown: (e: ReactPointerEvent) => void;
   onPointerMove: (e: ReactPointerEvent) => void;
-  onPointerUp: () => void;
+  onPointerUp: (e: ReactPointerEvent) => void;
 }) {
   return (
     <div
+      className="overlay-handle"
       onPointerDown={props.onPointerDown}
       onPointerMove={props.onPointerMove}
       onPointerUp={props.onPointerUp}

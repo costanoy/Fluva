@@ -1,13 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, Eraser, Eye, FlipHorizontal2, FlipVertical2, Highlighter, Link2, PenLine, RotateCcw, RotateCw, Undo2 } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { RangeField, signed } from '../../components/RangeField';
 import { useApp } from '../../state/AppContext';
 import { displaySize, imageEditsOf, isImagePage, type DocumentState, type ImageAdjust, type ImageFilterId, type WorkPage } from '../../pdf/model';
 import { CROP_ASPECTS, type CropAspect } from '../../pdf/crop';
-import { baseKey, FILTER_IDS, filterTiles, tonalActive } from '../../pdf/imageEdit';
+import { baseKey, FILTER_IDS, filterTiles, photoScaleLimits, tonalActive } from '../../pdf/imageEdit';
 import { photoTile } from '../../pdf/render';
-import { MAX_CANVAS_PIXELS } from '../../pdf/geometry';
 import type { DrawTool } from '../../state/appTypes';
 import { Swatches } from './OverlayPanel';
 import { t, type TranslationKey } from '../../i18n/translations';
@@ -65,8 +64,10 @@ export function CropPanel() {
 
   if (!page || !draft) return null;
   const turned = ((draft.rotation % 360) + 360) % 180 !== 0;
-  const shownW = Math.round(turned ? draft.rect.height : draft.rect.width);
-  const shownH = Math.round(turned ? draft.rect.width : draft.rect.height);
+  // In the photo's output pixels: after Redimensionar, as the export comes out.
+  const scale = photo ? imageEditsOf(page).scale : 1;
+  const shownW = Math.max(1, Math.round((turned ? draft.rect.height : draft.rect.width) * scale));
+  const shownH = Math.max(1, Math.round((turned ? draft.rect.width : draft.rect.height) * scale));
 
   return (
     <>
@@ -96,12 +97,14 @@ export function CropPanel() {
         {photo && (
           <>
             {/* As the page is seen: on a page turned a quarter, mirroring
-                left to right is the photo's own top-to-bottom flip. */}
-            <button type="button" className="tile-btn" aria-pressed={turned ? draft.flipV : draft.flipH} onClick={() => actions.updateCropDraft(turned ? { flipV: !draft.flipV } : { flipH: !draft.flipH })} title={t('crop.flipH')}>
+                left to right is the photo's own top-to-bottom flip. The
+                photo mirrors under the frame, so its straightening turns
+                the other way too, or it would come out tilted twice. */}
+            <button type="button" className="tile-btn" aria-pressed={turned ? draft.flipV : draft.flipH} onClick={() => actions.updateCropDraft({ ...(turned ? { flipV: !draft.flipV } : { flipH: !draft.flipH }), straighten: -draft.straighten || 0 })} title={t('crop.flipH')}>
               <FlipHorizontal2 size={18} strokeWidth={2.5} />
               <span>{t('crop.flipHShort')}</span>
             </button>
-            <button type="button" className="tile-btn" aria-pressed={turned ? draft.flipH : draft.flipV} onClick={() => actions.updateCropDraft(turned ? { flipH: !draft.flipH } : { flipV: !draft.flipV })} title={t('crop.flipV')}>
+            <button type="button" className="tile-btn" aria-pressed={turned ? draft.flipH : draft.flipV} onClick={() => actions.updateCropDraft({ ...(turned ? { flipH: !draft.flipH } : { flipV: !draft.flipV }), straighten: -draft.straighten || 0 })} title={t('crop.flipV')}>
               <FlipVertical2 size={18} strokeWidth={2.5} />
               <span>{t('crop.flipVShort')}</span>
             </button>
@@ -215,6 +218,8 @@ export function AdjustPanel() {
   const { state, actions } = useApp();
   const page = state.doc.pages[state.activePageIndex];
   const tiles = useFilterTiles(state.doc, page);
+  /** How "Comparar" was last pressed: a finger taps it on and off. */
+  const pressedBy = useRef('mouse');
   if (!page || !isImagePage(state.doc, page)) return <NotAPhoto title={t('adjust.title')} />;
   const e = imageEditsOf(page);
   const edited = tonalActive(e);
@@ -272,10 +277,17 @@ export function AdjustPanel() {
           disabled={!edited}
           aria-pressed={state.comparing}
           title={t('adjust.compareHint')}
-          onPointerDown={() => compare(true)}
-          onPointerUp={() => compare(false)}
-          onPointerLeave={() => compare(false)}
-          onPointerCancel={() => compare(false)}
+          // Held with a mouse; on a touch screen a tap turns it on and off
+          // (holding a finger still would only bring up the system menu) —
+          // on the click, which a swipe scrolling the panel never makes.
+          onPointerDown={(ev) => {
+            pressedBy.current = ev.pointerType;
+            if (ev.pointerType !== 'touch') compare(true);
+          }}
+          onClick={() => pressedBy.current === 'touch' && compare(!state.comparing)}
+          onPointerUp={(ev) => ev.pointerType !== 'touch' && compare(false)}
+          onPointerLeave={(ev) => ev.pointerType !== 'touch' && compare(false)}
+          onPointerCancel={(ev) => ev.pointerType !== 'touch' && compare(false)}
           onKeyDown={(ev) => (ev.key === ' ' || ev.key === 'Enter') && !ev.repeat && compare(true)}
           onKeyUp={() => compare(false)}
           onBlur={() => compare(false)}
@@ -313,9 +325,10 @@ export function ResizePanel() {
   }, [outW, outH]);
 
   if (!page || !photo) return <NotAPhoto title={t('resize.title')} />;
-  // From one pixel on its shorter side up to what one image can hold.
-  const minScale = 1 / Math.min(base.width, base.height);
-  const maxScale = Math.min(8, Math.sqrt(MAX_CANVAS_PIXELS / (base.width * base.height)), 16384 / Math.max(base.width, base.height));
+  // See photoScaleLimits — and never below where it already is.
+  const limits = photoScaleLimits(page);
+  const minScale = limits.min;
+  const maxScale = Math.max(limits.max, scale);
   const photoPages = state.doc.pages.filter((p) => isImagePage(state.doc, p)).length;
 
   const apply = (next: number) => {
@@ -331,7 +344,15 @@ export function ResizePanel() {
       setHeight(String(outH));
     }
   };
-  const field = (value: string, set: (v: string) => void, side: number, label: string) => (
+  // Leaving a field that wasn't changed changes nothing.
+  const settle = (value: string, shownValue: number, side: number) => {
+    if (Number(value) !== shownValue) apply(Number(value) / side);
+    else {
+      setWidth(String(outW));
+      setHeight(String(outH));
+    }
+  };
+  const field = (value: string, set: (v: string) => void, side: number, label: string, shownValue: number) => (
     <label className="unit-input resize-input">
       <span>{label}</span>
       <input
@@ -339,8 +360,8 @@ export function ResizePanel() {
         value={value}
         aria-label={label}
         onChange={(ev) => set(ev.target.value.replace(/[^\d]/g, ''))}
-        onBlur={() => apply(Number(value) / side)}
-        onKeyDown={(ev) => ev.key === 'Enter' && apply(Number(value) / side)}
+        onBlur={() => settle(value, shownValue, side)}
+        onKeyDown={(ev) => ev.key === 'Enter' && settle(value, shownValue, side)}
       />
       <span>px</span>
     </label>
@@ -353,9 +374,9 @@ export function ResizePanel() {
 
       <div className="panel-label">{t('resize.newSize')}</div>
       <div className="resize-fields">
-        {field(width, setWidth, base.width, t('resize.width'))}
+        {field(width, setWidth, base.width, t('resize.width'), outW)}
         <Link2 size={16} strokeWidth={2.5} aria-hidden="true" className="resize-link" />
-        {field(height, setHeight, base.height, t('resize.height'))}
+        {field(height, setHeight, base.height, t('resize.height'), outH)}
       </div>
       <ChipGroup
         label={t('resize.percent')}

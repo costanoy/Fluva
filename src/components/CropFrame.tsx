@@ -21,27 +21,31 @@ interface CropFrameProps {
  * page space inside the page's plane, so it turns along with the page.
  */
 export function CropFrame({ page, rect, scale, ratio, onChange }: CropFrameProps) {
-  const drag = useRef<{ handle: CropHandle | 'move'; startX: number; startY: number; start: Rect } | null>(null);
+  const drag = useRef<{ pointerId: number; pointerType: string; handle: CropHandle | 'move'; startX: number; startY: number; start: Rect } | null>(null);
   const [active, setActive] = useState(false);
 
   const begin = (handle: CropHandle | 'move') => (e: ReactPointerEvent) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
+    // One finger at a time: a second one landing doesn't take the box over —
+    // but a new first one of the same kind means the last was let go unheard.
+    if (drag.current && !(e.isPrimary && e.pointerType === drag.current.pointerType)) return;
     safeSetPointerCapture(e.currentTarget as HTMLElement, e.pointerId);
-    drag.current = { handle, startX: e.clientX, startY: e.clientY, start: rect };
+    drag.current = { pointerId: e.pointerId, pointerType: e.pointerType, handle, startX: e.clientX, startY: e.clientY, start: rect };
     setActive(true);
   };
 
   const move = (e: ReactPointerEvent) => {
     const d = drag.current;
-    if (!d) return;
+    if (!d || d.pointerId !== e.pointerId) return;
     e.stopPropagation();
     const { dx, dy } = screenDeltaToPage(e.clientX - d.startX, e.clientY - d.startY, page.rotation, scale);
     onChange(d.handle === 'move' ? moveCrop(d.start, dx, dy, page) : resizeCrop(d.start, d.handle, dx, dy, ratio, page));
   };
 
-  const end = () => {
+  const end = (e: ReactPointerEvent) => {
+    if (drag.current?.pointerId !== e.pointerId) return;
     drag.current = null;
     setActive(false);
   };

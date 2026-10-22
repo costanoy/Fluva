@@ -71,9 +71,10 @@ const PHOTO_EXPORT_PIXELS = Math.min(MAX_CANVAS_PIXELS, 24_000_000);
 
 export interface BuildOptions {
   /** The PDF only exists to be turned into images (see rasterize.ts), which
-   * draw each photo page's photo themselves: those pages carry only what's
-   * on top of the photo. */
-  omitPhotos?: boolean;
+   * draw these photo pages' photos themselves: they carry only what's on top. */
+  omitPhotos?: (page: WorkPage) => boolean;
+  /** …and the photos it does carry go in losslessly (and fast), not as JPEG. */
+  losslessPhotos?: boolean;
 }
 
 /**
@@ -241,14 +242,18 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport, options
       rawH = page.height;
       outPage = out.addPage([rawW, rawH]);
       const scale = imageEditsOf(page).scale;
-      if (options.omitPhotos) {
+      if (options.omitPhotos?.(page)) {
         // Drawn by whoever turns this PDF into an image.
       } else if (changesPixels(page) || page.crop || scale < 1) {
         const shown = shownRect(page);
         const ppp = Math.min(1, scale, Math.sqrt(PHOTO_EXPORT_PIXELS / (shown.width * shown.height)));
         const canvas = await renderPhoto(source, page, { ...shown, ppp });
         try {
-          await drawPhoto(out, outPage, canvas, shown, source.mime === 'image/jpeg');
+          await drawPhoto(out, outPage, canvas, shown, {
+            jpeg: !options.losslessPhotos && source.mime === 'image/jpeg',
+            opaque: source.opaque === true,
+            level: options.losslessPhotos ? 1 : 6,
+          });
         } finally {
           canvas.width = canvas.height = 0;
         }
@@ -417,24 +422,27 @@ function restoreForms(out: PDFDocument, sources: Array<{ srcDoc: PDFDocument; co
 
 /**
  * Draws an edited photo's pixels over `rect` (page space): a JPEG when
- * that's what the photo was and it has nothing see-through, else the pixels
- * themselves, deflated — lossless, and with their transparency.
+ * that's what the photo was, else the pixels themselves, deflated —
+ * lossless, and with their transparency unless the photo has none.
  */
-async function drawPhoto(out: PDFDocument, page: PDFPage, canvas: HTMLCanvasElement, rect: Rect, asJpeg: boolean) {
+async function drawPhoto(out: PDFDocument, page: PDFPage, canvas: HTMLCanvasElement, rect: Rect, how: { jpeg: boolean; opaque: boolean; level: 1 | 6 }) {
   const { width: w, height: h } = canvas;
-  const data = canvas.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, w, h).data;
-  let opaque = true;
-  for (let i = 3; i < data.length; i += 4) {
-    if (data[i] !== 255) {
-      opaque = false;
-      break;
-    }
-  }
-  if (asJpeg && opaque) {
+  if (how.jpeg) {
     const blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
     const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
     page.drawImage(img, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
     return;
+  }
+  const data = canvas.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, w, h).data;
+  let opaque = how.opaque;
+  if (!opaque) {
+    opaque = true;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] !== 255) {
+        opaque = false;
+        break;
+      }
+    }
   }
   const colour = new Uint8Array(w * h * 3);
   const alpha = opaque ? null : new Uint8Array(w * h);
@@ -447,7 +455,7 @@ async function drawPhoto(out: PDFDocument, page: PDFPage, canvas: HTMLCanvasElem
   const { context } = out;
   const image = (bytes: Uint8Array, space: 'DeviceRGB' | 'DeviceGray', extra: Record<string, PDFObject> = {}) =>
     context.register(
-      context.stream(zlibSync(bytes, { level: 6 }), {
+      context.stream(zlibSync(bytes, { level: how.level }), {
         Type: 'XObject',
         Subtype: 'Image',
         Width: w,

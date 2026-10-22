@@ -27,11 +27,15 @@ export async function rasterizeDocument(
   onPage: (canvas: HTMLCanvasElement, index: number, total: number) => Promise<void> | void,
   transparentFor: (index: number) => boolean = () => false,
 ): Promise<void> {
-  const photo = (i: number) => isImagePage(doc, doc.pages[i]);
+  // A highlighter is multiplied into the photo under it: pdf.js can only do
+  // that with the photo there, so such a page keeps its photo in the PDF.
+  const highlighted = (page: WorkPage) => page.overlays.some((o) => o.kind === 'draw' && o.highlighter);
+  const underlaid = (page: WorkPage) => isImagePage(doc, page) && !highlighted(page);
+  const photo = (i: number) => underlaid(doc.pages[i]);
   // A photo with nothing on top (its blurred areas are in its pixels) has
   // nothing for pdf.js to draw.
   const bare = (i: number) => photo(i) && !watermarkOn(doc, doc.pages[i]) && doc.pages[i].overlays.every((o) => o.kind === 'redact');
-  const baked = await buildPdf(doc, undefined, { omitPhotos: true });
+  const baked = await buildPdf(doc, undefined, { omitPhotos: underlaid, losslessPhotos: true });
   await rasterizePages(
     baked,
     scaleFor,
@@ -67,21 +71,24 @@ async function underlayPhoto(doc: DocumentState, page: WorkPage, drawn: HTMLCanv
   const ppp = Math.min(photoW / shown.width, Math.sqrt(PHOTO_RASTER_PIXELS / (shown.width * shown.height)));
   const photo = await renderPhoto(source, page, { ...shown, ppp });
 
-  const out = document.createElement('canvas');
-  out.width = width;
-  out.height = height;
-  const ctx = out.getContext('2d')!;
-  if (!transparent) {
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, width, height);
-  }
-  ctx.imageSmoothingQuality = 'high';
+  // Slid in under what's already drawn, on the same canvas — not on a third
+  // full-size one: a phone has the memory for only so many.
+  const ctx = drawn.getContext('2d')!;
+  if (bare) ctx.clearRect(0, 0, width, height);
   ctx.save();
+  ctx.globalCompositeOperation = 'destination-over';
+  ctx.imageSmoothingQuality = 'high';
   ctx.translate(width / 2, height / 2);
   ctx.rotate((turn * Math.PI) / 180);
   ctx.drawImage(photo, -photoW / 2, -photoH / 2, photoW, photoH);
   ctx.restore();
   photo.width = photo.height = 0;
-  if (!bare) ctx.drawImage(drawn, 0, 0);
-  return out;
+  if (!transparent) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+  }
+  return drawn;
 }

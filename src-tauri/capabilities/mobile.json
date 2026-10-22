@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile-save",
+  "description": "lets the phone app save exported files through the system's save sheet (its WebView ignores downloads)",
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "dialog:allow-save",
+    "fs:allow-open",
+    "fs:allow-write"
+  ]
+}

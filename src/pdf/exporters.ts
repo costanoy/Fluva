@@ -7,6 +7,7 @@ import { rasterizeDocument } from './rasterize';
 import { extractPageImages, extractPageText, groupIntoLines, lineRuns, type LineItem } from './textExtract';
 import { isCoveredRect, TEXT_BASELINE_RATIO, TEXT_LINE_HEIGHT } from './geometry';
 import { stripExtension } from './loader';
+import { IN_ANDROID_APP, saveThroughSystem } from './saveFile';
 import { t } from '../i18n/translations';
 
 export type ExportFormat = 'pdf' | 'png' | 'jpg' | 'webp' | 'docx';
@@ -14,6 +15,15 @@ export type ExportFormat = 'pdf' | 'png' | 'jpg' | 'webp' | 'docx';
 export type ImageFormat = 'png' | 'jpg' | 'webp';
 
 export const IMAGE_MIME: Record<ImageFormat, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' };
+
+/** The widest or tallest image WebP can hold. */
+export const WEBP_MAX_SIDE = 16383;
+
+/** Refuses a WebP the encoder can't write, with a reason, instead of the
+ * browser's silent failure. */
+export function checkWebpSize(canvas: HTMLCanvasElement) {
+  if (Math.max(canvas.width, canvas.height) > WEBP_MAX_SIDE) throw new Error(t('export.webpTooLarge', { max: WEBP_MAX_SIDE }));
+}
 
 /** Encoder quality per format: PNG is lossless and takes none. */
 export const IMAGE_QUALITY: Record<ImageFormat, number | undefined> = { png: undefined, jpg: 0.92, webp: 0.9 };
@@ -24,7 +34,10 @@ export function keepsTransparency(doc: DocumentState, page: WorkPage | undefined
   return format !== 'jpg' && isImagePage(doc, page);
 }
 
-export function downloadBlob(blob: Blob, filename: string) {
+/** Hands a finished file to the person: a download — or, in the Android
+ * app, the system's save sheet (see saveFile.ts), which may be cancelled. */
+export async function downloadBlob(blob: Blob, filename: string): Promise<void> {
+  if (IN_ANDROID_APP) return saveThroughSystem(blob, filename);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -36,16 +49,16 @@ export function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function downloadBytes(bytes: Uint8Array, filename: string, mime: string) {
+export function downloadBytes(bytes: Uint8Array, filename: string, mime: string): Promise<void> {
   const copy = new Uint8Array(bytes.length);
   copy.set(bytes);
-  downloadBlob(new Blob([copy.buffer], { type: mime }), filename);
+  return downloadBlob(new Blob([copy.buffer], { type: mime }), filename);
 }
 
 export async function exportAsPdf(doc: DocumentState, baseName: string): Promise<BuildReport> {
   const report: BuildReport = {};
   const bytes = await buildPdf(doc, report);
-  downloadBytes(bytes, `${baseName}.pdf`, 'application/pdf');
+  await downloadBytes(bytes, `${baseName}.pdf`, 'application/pdf');
   return report;
 }
 
@@ -69,6 +82,7 @@ export async function exportAsImages(
     doc,
     (i) => imageExportScale(doc, doc.pages[i]),
     async (canvas, i, total) => {
+      if (format === 'webp') checkWebpSize(canvas);
       const blob = await canvasToBlob(canvas, mime, quality);
       const name = `${baseName}${t('file.page', { n: String(i + 1).padStart(pad, '0') })}.${format}`;
       files.push({ name, bytes: new Uint8Array(await blob.arrayBuffer()) });
@@ -78,11 +92,11 @@ export async function exportAsImages(
   );
 
   if (files.length === 1) {
-    downloadBytes(files[0].bytes, `${baseName}.${format}`, mime);
+    await downloadBytes(files[0].bytes, `${baseName}.${format}`, mime);
     return;
   }
   // PNG, JPEG and WebP are compressed already; deflating them again only costs time.
-  zipFiles(files, `${baseName}_${format}.zip`, 0);
+  await zipFiles(files, `${baseName}_${format}.zip`, 0);
 }
 
 export { imageExportScale };
@@ -196,7 +210,7 @@ export async function exportAsDocx(
 
   const docx = new Document({ sections: [{ properties: {}, children: paragraphs }] });
   const blob = await Packer.toBlob(docx);
-  downloadBlob(blob, `${baseName}.docx`);
+  await downloadBlob(blob, `${baseName}.docx`);
   return { paragraphs: count, images: imageCount };
 }
 
@@ -209,10 +223,10 @@ export function baseNameFor(doc: DocumentState): string {
  * "imagem.png" and an "imagem.jpg" both converted to PDF) would otherwise
  * overwrite each other inside the archive — the second gets a " (2)".
  */
-export function zipFiles(files: Array<{ name: string; bytes: Uint8Array }>, zipName: string, level: 0 | 6 = 6) {
+export function zipFiles(files: Array<{ name: string; bytes: Uint8Array }>, zipName: string, level: 0 | 6 = 6): Promise<void> {
   const map: Record<string, Uint8Array> = {};
   for (const f of files) map[uniqueName(f.name, map)] = f.bytes;
-  downloadBytes(zipSync(map, { level }), zipName, 'application/zip');
+  return downloadBytes(zipSync(map, { level }), zipName, 'application/zip');
 }
 
 function uniqueName(name: string, taken: Record<string, unknown>): string {

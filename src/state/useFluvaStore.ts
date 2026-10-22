@@ -18,7 +18,7 @@ import {
   type WatermarkConfig,
   type WorkPage,
 } from '../pdf/model';
-import { compactImageEdits } from '../pdf/imageEdit';
+import { compactImageEdits, flippedPhoto, photoScaleLimits, withPhotoGeometry } from '../pdf/imageEdit';
 import { aspectInPage, clampRect, coversPage, fitAspect, type CropAspect } from '../pdf/crop';
 import { thicknessToPoints } from '../pdf/annotations';
 import { FILE_ACCEPT, formatBytes, IMAGE_ACCEPT, imageMimeOf, isAcceptedFile, loadFile, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
@@ -207,6 +207,11 @@ export function useFluvaStore() {
         set({ busy: null });
         return result;
       } catch (err) {
+        // The save sheet closed without saving (Android): not an error.
+        if (err instanceof Error && err.name === 'SaveCancelled') {
+          set({ busy: null });
+          return null;
+        }
         const message = err instanceof Error ? err.message : t('store.genericError');
         set({ busy: null, error: message });
         return null;
@@ -235,13 +240,54 @@ export function useFluvaStore() {
       };
     };
 
-    /** A page's photo edits through `fn`, by page id. */
+    /** What the crop tool's work turns its page into — null when there's no
+     * work in progress, or it changes nothing. */
+    const cropResult = (st: AppState): { index: number; page: WorkPage } | null => {
+      const draft = st.cropDraft;
+      if (!draft) return null;
+      const index = st.doc.pages.findIndex((p) => p.id === draft.pageId);
+      const page = st.doc.pages[index];
+      if (!page) return null;
+      const photo = isImagePage(st.doc, page);
+      // A photo is cut on whole pixels; a PDF page to a hundredth of a point.
+      const step = photo ? 1 : 0.01;
+      const snap = (n: number) => Math.round(n / step) * step;
+      const r = draft.rect;
+      const x0 = snap(r.x);
+      const y0 = snap(r.y);
+      const crop = coversPage(r, page) ? null : { x: x0, y: y0, width: Math.max(step, snap(r.x + r.width) - x0), height: Math.max(step, snap(r.y + r.height) - y0) };
+      const before = imageEditsOf(page);
+      const after = { ...before, flipH: draft.flipH, flipV: draft.flipV, straighten: draft.straighten };
+      const image = photo ? compactImageEdits(after) : page.image;
+      const same = JSON.stringify([page.crop, page.rotation, page.image ?? null]) === JSON.stringify([crop, draft.rotation, image ?? null]);
+      if (same) return null;
+      // A blurred area keeps covering what it covered: it moves with the
+      // photo when that's flipped or turned straight differently.
+      const moved = photo ? withPhotoGeometry(page, after) : page;
+      return { index, page: { ...moved, crop, rotation: draft.rotation, image } };
+    };
+
+    /** The pages with the crop tool's work written in (see `cropResult`). */
+    const pagesWithCrop = (st: AppState): WorkPage[] => {
+      const result = cropResult(st);
+      return result ? replacePage(st, result.index, result.page) : st.doc.pages;
+    };
+
+    /** An open crop tool closed, its work kept (see `setTool`) — before an
+     * export or signing, whose file has to be what the screen shows. Through
+     * `mutate` when it changes the document (see `settlingCrop`). */
+    const settleCrop = (st: AppState): Partial<AppState> =>
+      st.toolMode === 'crop' ? { ...(cropResult(st) ? { doc: { ...st.doc, pages: pagesWithCrop(st) } } : {}), toolMode: null, cropDraft: null } : {};
+    const settlingCrop = (st: AppState) => st.toolMode === 'crop' && !!cropResult(st);
+
+    /** A page's photo edits through `fn`, by page id. "Comparar" lets go:
+     * a change made while it's on would look like it did nothing. */
     const writeImageEdits = (st: AppState, pageId: string, fn: (e: ImageEdits) => ImageEdits): Patch => {
       const index = st.doc.pages.findIndex((p) => p.id === pageId);
       const page = st.doc.pages[index];
       if (!page || !isImagePage(st.doc, page)) return null;
       const image = compactImageEdits(fn(imageEditsOf(page)));
-      return { doc: { ...st.doc, pages: replacePage(st, index, { ...page, image }) } };
+      return { doc: { ...st.doc, pages: replacePage(st, index, { ...page, image }) }, comparing: false };
     };
 
     const updateActivePage = (fn: (page: WorkPage) => WorkPage) =>
@@ -534,7 +580,7 @@ export function useFluvaStore() {
           // reader and home screen, which never need them.
           const { buildPdf } = await import('../pdf/build');
           const { rasterizeDocument } = await import('../pdf/rasterize');
-          const { downloadBytes, imageExportScale, IMAGE_MIME, IMAGE_QUALITY, keepsTransparency, zipFiles } = await import('../pdf/exporters');
+          const { checkWebpSize, downloadBytes, imageExportScale, IMAGE_MIME, IMAGE_QUALITY, keepsTransparency, zipFiles } = await import('../pdf/exporters');
           const outputs: Array<{ name: string; bytes: Uint8Array }> = [];
 
           for (let i = 0; i < queue.length; i++) {
@@ -559,6 +605,7 @@ export function useFluvaStore() {
                 doc,
                 (p) => imageExportScale(doc, doc.pages[p]),
                 async (canvas, p, total) => {
+                  if (target === 'webp') checkWebpSize(canvas);
                   const blob = await canvasToBlob(canvas, mime, IMAGE_QUALITY[target]);
                   const suffix = total > 1 ? t('file.page', { n: p + 1 }) : '';
                   outputs.push({ name: `${base}${suffix}.${target}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
@@ -570,10 +617,10 @@ export function useFluvaStore() {
           }
 
           if (outputs.length === 1) {
-            downloadBytes(outputs[0].bytes, outputs[0].name, target === 'pdf' ? 'application/pdf' : IMAGE_MIME[target]);
+            await downloadBytes(outputs[0].bytes, outputs[0].name, target === 'pdf' ? 'application/pdf' : IMAGE_MIME[target]);
           } else {
             // PNG, JPEG and WebP are compressed already; deflating them again only costs time.
-            zipFiles(outputs, `${t('file.converted', { format: target })}.zip`, target === 'pdf' ? 6 : 0);
+            await zipFiles(outputs, `${t('file.converted', { format: target })}.zip`, target === 'pdf' ? 6 : 0);
           }
           set({ toast: t('store.filesConverted', { count: outputs.length, format: target.toUpperCase() }) });
         });
@@ -610,19 +657,25 @@ export function useFluvaStore() {
 
       setActivePage: (index: number) => {
         commitTextRunEditNow();
-        set((st) => {
-          const page = st.doc.pages[index];
+        // Moving on while cropping keeps the crop (one step to undo); the
+        // crop tool then follows to the page now open.
+        const update = (st: AppState): Patch => {
+          const pages = st.toolMode === 'crop' ? pagesWithCrop(st) : st.doc.pages;
+          const page = pages[index];
           return {
+            doc: pages === st.doc.pages ? st.doc : { ...st.doc, pages },
             activePageIndex: index,
             selectedOverlayId: null,
             editingTextId: null,
             textRunTarget: null,
             textRunDraft: null,
             comparing: false,
-            // The crop tool follows to the page now open.
             cropDraft: st.toolMode === 'crop' && page ? cropDraftFor(page) : null,
           };
-        });
+        };
+        const st = stateRef.current;
+        if (st.toolMode === 'crop' && cropResult(st)) mutate(update);
+        else set(update);
       },
 
       rotateActivePage: () => updateActivePage((page) => ({ ...page, rotation: (page.rotation + 90) % 360 })),
@@ -1045,10 +1098,16 @@ export function useFluvaStore() {
 
       /* ---------------------------------------------------------------- tools */
 
-      setTool: (toolMode: AppState['toolMode']) =>
-        set((st) => ({
+      setTool: (toolMode: AppState['toolMode']) => {
+        // Leaving the crop tool any way but "Cancelar" — another tool, or its
+        // own button again — keeps what was done in it, as one step to undo.
+        const leavingCrop = stateRef.current.toolMode === 'crop' && !!cropResult(stateRef.current);
+        (leavingCrop ? mutate : set)((st) => ({
+          ...(st.toolMode === 'crop' && cropResult(st) ? { doc: { ...st.doc, pages: pagesWithCrop(st) } } : {}),
           toolMode: st.toolMode === toolMode ? null : toolMode,
           cropDraft: toolMode === 'crop' && st.toolMode !== 'crop' && currentPage(st) ? cropDraftFor(currentPage(st)!) : null,
+          // The crop tool opens on the whole page, fitted to the screen.
+          ...(toolMode === 'crop' && st.toolMode !== 'crop' ? { zoom: null } : {}),
           comparing: false,
           selectedOverlayId: null,
           editingTextId: null,
@@ -1060,7 +1119,8 @@ export function useFluvaStore() {
           splitPagesSubMode: 'all',
           splitSelectedPages: [],
           splitMergeSelected: false,
-        })),
+        }));
+      },
 
       toggleMergeSource: (sourceId: string) =>
         set((st) => ({
@@ -1203,8 +1263,8 @@ export function useFluvaStore() {
             }
           }
 
-          if (results.length === 1) downloadBytes(results[0].bytes, results[0].name, 'application/pdf');
-          else zipFiles(results.map((r) => ({ name: r.name, bytes: r.bytes })), `${baseName}${t('file.split')}.zip`);
+          if (results.length === 1) await downloadBytes(results[0].bytes, results[0].name, 'application/pdf');
+          else await zipFiles(results.map((r) => ({ name: r.name, bytes: r.bytes })), `${baseName}${t('file.split')}.zip`);
           set({ toast: message, toolMode: null });
         });
       },
@@ -1252,37 +1312,11 @@ export function useFluvaStore() {
 
       /** Writes the crop tool's work to the page — one step to undo — and closes it. */
       applyCrop: () => {
-        const st = stateRef.current;
-        const draft = st.cropDraft;
-        const page = currentPage(st);
-        if (!draft || !page || draft.pageId !== page.id) {
+        if (!cropResult(stateRef.current)) {
           set({ toolMode: null, cropDraft: null });
           return;
         }
-        const photo = isImagePage(st.doc, page);
-        // A photo is cut on whole pixels; a PDF page to a hundredth of a point.
-        const step = photo ? 1 : 0.01;
-        const snap = (n: number) => Math.round(n / step) * step;
-        const r = draft.rect;
-        const x0 = snap(r.x);
-        const y0 = snap(r.y);
-        const crop = coversPage(r, page) ? null : { x: x0, y: y0, width: Math.max(step, snap(r.x + r.width) - x0), height: Math.max(step, snap(r.y + r.height) - y0) };
-        const image = photo ? compactImageEdits({ ...imageEditsOf(page), flipH: draft.flipH, flipV: draft.flipV, straighten: draft.straighten }) : page.image;
-        const same = JSON.stringify([page.crop, page.rotation, page.image ?? null]) === JSON.stringify([crop, draft.rotation, image ?? null]);
-        if (same) {
-          set({ toolMode: null, cropDraft: null });
-          return;
-        }
-        mutate((cur) => {
-          const index = cur.doc.pages.findIndex((p) => p.id === draft.pageId);
-          if (index < 0) return { toolMode: null, cropDraft: null };
-          const target = cur.doc.pages[index];
-          return {
-            doc: { ...cur.doc, pages: replacePage(cur, index, { ...target, crop, rotation: draft.rotation, image }) },
-            toolMode: null,
-            cropDraft: null,
-          };
-        });
+        mutate((cur) => ({ doc: { ...cur.doc, pages: pagesWithCrop(cur) }, toolMode: null, cropDraft: null }));
       },
 
       cancelCrop: () => set({ toolMode: null, cropDraft: null }),
@@ -1312,11 +1346,11 @@ export function useFluvaStore() {
         liveEdit(`image:${page.id}:filterStrength`, (st) => writeImageEdits(st, page.id, (e) => ({ ...e, filterStrength: value })), recordHistory);
       },
 
-      /** Back to the photo's own light and colour, without a filter. */
+      /** Back to the photo's own light and colour, without a filter or the negative. */
       resetImageTone: () => {
         const page = currentPage(stateRef.current);
         if (!page) return;
-        mutate((st) => writeImageEdits(st, page.id, (e) => ({ ...e, filter: 'none', filterStrength: 100, adjust: { ...NO_ADJUST } })));
+        mutate((st) => writeImageEdits(st, page.id, (e) => ({ ...e, filter: 'none', filterStrength: 100, invert: false, adjust: { ...NO_ADJUST } })));
       },
 
       /** The photo's output size, as pixels per original pixel — on the
@@ -1327,7 +1361,10 @@ export function useFluvaStore() {
           let cur = st;
           const targets = everyPhoto ? st.doc.pages.filter((p) => isImagePage(st.doc, p)) : [currentPage(st)].filter((p): p is WorkPage => !!p);
           for (const target of targets) {
-            const next = writeImageEdits(cur, target.id, (e) => ({ ...e, scale }));
+            // Each photo within its own limits: what fits a small one may not fit a big one.
+            const { min, max } = photoScaleLimits(target);
+            const fitted = Math.min(max, Math.max(min, scale));
+            const next = writeImageEdits(cur, target.id, (e) => ({ ...e, scale: fitted }));
             if (!next) continue;
             patch = next;
             cur = { ...cur, ...next };
@@ -1336,6 +1373,22 @@ export function useFluvaStore() {
         }),
 
       setComparing: (comparing: boolean) => set({ comparing }),
+
+      /** Flips the open page's photo, left to right ('h') or top to bottom ('v'), as the page is seen. */
+      flipPhoto: (axis: 'h' | 'v') =>
+        mutate((st) => {
+          const page = currentPage(st);
+          if (!page || !isImagePage(st.doc, page)) return null;
+          return { doc: { ...st.doc, pages: replacePage(st, st.activePageIndex, flippedPhoto(page, axis)) } };
+        }),
+
+      /** The open page's photo in negative, or back from it — its filter kept either way. */
+      toggleInvertColors: () => {
+        const st = stateRef.current;
+        const page = currentPage(st);
+        if (!page || !isImagePage(st.doc, page)) return;
+        mutate((cur) => writeImageEdits(cur, page.id, (e) => ({ ...e, invert: !e.invert })));
+      },
 
       setCompressLevel: (level: CompressLevel) => set({ compressLevel: level, compressOutcome: null }),
 
@@ -1377,29 +1430,34 @@ export function useFluvaStore() {
       downloadCompressed: async () => {
         const outcome = stateRef.current.compressOutcome;
         if (!outcome) return;
-        const { baseNameFor, downloadBytes, zipFiles } = await import('../pdf/exporters');
-        const base = baseNameFor(stateRef.current.doc);
-        if (outcome.images) {
-          if (outcome.images.length === 1) downloadBytes(outcome.images[0].bytes, outcome.images[0].name, outcome.images[0].mime);
-          // Already compressed: deflating them again only costs time.
-          else zipFiles(outcome.images, `${base}${t('file.compressed')}.zip`, 0);
-          return;
-        }
-        downloadBytes(outcome.bytes, `${base}${t('file.compressed')}.pdf`, 'application/pdf');
+        await withBusy(t('store.saving'), async () => {
+          const { baseNameFor, downloadBytes, zipFiles } = await import('../pdf/exporters');
+          const base = baseNameFor(stateRef.current.doc);
+          if (outcome.images) {
+            if (outcome.images.length === 1) await downloadBytes(outcome.images[0].bytes, outcome.images[0].name, outcome.images[0].mime);
+            // Already compressed: deflating them again only costs time.
+            else await zipFiles(outcome.images, `${base}${t('file.compressed')}.zip`, 0);
+            return;
+          }
+          await downloadBytes(outcome.bytes, `${base}${t('file.compressed')}.pdf`, 'application/pdf');
+        });
       },
 
       /* --------------------------------------------------------------- export */
 
-      toggleExport: () => set((st) => ({ exportOpen: !st.exportOpen })),
+      toggleExport: () => {
+        const opening = !stateRef.current.exportOpen;
+        (opening && settlingCrop(stateRef.current) ? mutate : set)((st) => ({ ...(st.exportOpen ? {} : settleCrop(st)), exportOpen: !st.exportOpen }));
+      },
       closeExport: () => set({ exportOpen: false }),
       setExportFormat: (exportFormat: ExportFormat) => set({ exportFormat }),
 
       runExport: async (format: ExportFormat) => {
         const st = stateRef.current;
-        const { baseNameFor, exportAsDocx, exportAsImages, exportAsPdf } = await import('../pdf/exporters');
-        const base = baseNameFor(st.doc);
         set({ exportOpen: false });
         await withBusy(t('store.exporting'), async (progress) => {
+          const { baseNameFor, exportAsDocx, exportAsImages, exportAsPdf } = await import('../pdf/exporters');
+          const base = baseNameFor(st.doc);
           if (format === 'pdf') {
             const report = await exportAsPdf(st.doc, base);
             set({
@@ -1439,7 +1497,8 @@ export function useFluvaStore() {
 
       /* ------------------------------------------------------------------ sign */
 
-      setSignDialogOpen: (open: boolean) => set({ signDialogOpen: open, exportOpen: false }),
+      setSignDialogOpen: (open: boolean) =>
+        (open && settlingCrop(stateRef.current) ? mutate : set)((st) => ({ ...(open ? settleCrop(st) : {}), signDialogOpen: open, exportOpen: false })),
 
       /** Bakes the current document, signs it with the user's own certificate,
        * and downloads the result — the certificate and password only ever
@@ -1460,8 +1519,14 @@ export function useFluvaStore() {
           const pfxBytes = new Uint8Array(await pfxFile.arrayBuffer());
           const result = await signPdf(pdfBytes, pfxBytes, password);
           const fileName = `${baseNameFor(st.doc)}${t('file.signed')}.pdf`;
-          downloadBytes(result.bytes, fileName, 'application/pdf');
-          return { ok: true, fileName, ...result };
+          // Closing Android's save sheet still leaves the signed file one
+          // tap away ("Baixar de novo" on the done screen).
+          let saved = true;
+          await downloadBytes(result.bytes, fileName, 'application/pdf').catch((err) => {
+            if (!(err instanceof Error && err.name === 'SaveCancelled')) throw err;
+            saved = false;
+          });
+          return { ok: true, fileName, saved, ...result };
         } catch (err) {
           const wrongPassword = !!err && typeof err === 'object' && (err as { code?: string }).code === 'wrong-password';
           return { ok: false, wrongPassword, message: err instanceof Error ? err.message : t('store.genericError') };
@@ -1506,8 +1571,10 @@ export function useFluvaStore() {
         return;
       }
 
-      // The crop tool: Enter applies it, Esc leaves it as it was.
-      if (stateRef.current.toolMode === 'crop' && (e.key === 'Enter' || e.key === 'Escape')) {
+      // The crop tool: Enter applies it, Esc leaves it as it was — but Enter
+      // on a focused button (Cancelar, a proportion) is that button's.
+      const onControl = target instanceof Element && !!target.closest('button, a, select, [role="button"], [role="radio"]');
+      if (stateRef.current.toolMode === 'crop' && ((e.key === 'Enter' && !onControl) || e.key === 'Escape')) {
         e.preventDefault();
         if (e.key === 'Enter') actions.applyCrop();
         else actions.cancelCrop();

@@ -7,6 +7,22 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 
+// A tab opened before an update asks for files of the old version, which the
+// server no longer has: opening the editor would leave a blank page. Reload
+// once onto the new version — never with the editor open (its unsaved work
+// matters more, and a failed export there already says so).
+window.addEventListener('vite:preloadError', (event) => {
+  if (document.querySelector('.editing-shell')) return;
+  try {
+    if (sessionStorage.getItem('fluva-reloaded-for-update')) return;
+    sessionStorage.setItem('fluva-reloaded-for-update', '1');
+  } catch {
+    return;
+  }
+  event.preventDefault();
+  window.location.reload();
+});
+
 // The website keeps working offline through a service worker. The desktop app
 // carries its own files: a service worker there only kept serving an older
 // version's copies after an update, so it is removed instead (once — the

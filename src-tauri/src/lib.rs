@@ -19,7 +19,7 @@ fn files_from_args() -> Vec<(String, Vec<u8>)> {
       let accepted = path
         .extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "pdf" | "png" | "jpg" | "jpeg"))
+        .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "pdf" | "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "avif"))
         .unwrap_or(false);
       accepted && std::fs::metadata(path).map(|m| m.is_file() && m.len() <= MAX_FILE_BYTES).unwrap_or(false)
     })
