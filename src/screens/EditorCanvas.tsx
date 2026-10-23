@@ -137,7 +137,7 @@ export function EditorCanvas() {
   // A zoom keeps its anchor in place: measured where the page was before and
   // where the new size put it, the page is moved so the point that was under
   // the anchor still is. Zoomed out until the page fits, it settles back in
-  // the middle; zoomed in, its edges can't be pulled in past the padding.
+  // the middle.
   useLayoutEffect(() => {
     const stage = stageRef.current;
     const area = containerRef.current;
@@ -153,10 +153,17 @@ export function EditorCanvas() {
     const middle = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
     const { from, to } = zoomAnchor.current ?? { from: middle, to: middle };
     zoomAnchor.current = null;
+    const zoomingOut = safeScale < prev;
     const fit = (size: number, areaStart: number, areaSize: number, want: number) => {
-      // Fits with its margins: in the middle.
-      if (size + CANVAS_PADDING * 2 <= areaSize) return areaStart + (areaSize - size) / 2;
-      return Math.min(areaStart + CANVAS_PADDING, Math.max(areaStart + areaSize - CANVAS_PADDING - size, want));
+      // Zoomed out until it fits with its margins: in the middle. (Zooming
+      // in, it grows from the anchor even while small — under the fingers
+      // of a pinch, say — rather than jumping to the middle.)
+      if (zoomingOut && size + CANVAS_PADDING * 2 <= areaSize) return areaStart + (areaSize - size) / 2;
+      // Bigger: wherever the anchor puts it, as long as a good part of it
+      // stays in view — a page zoomed in near its edge isn't pulled away
+      // from the pointer, nor lost off screen.
+      const visible = Math.min(size, areaSize) / 4;
+      return Math.min(areaStart + areaSize - visible, Math.max(areaStart + visible - size, want));
     };
     const left = fit(now.width, box.left, box.width, to.x - ((from.x - before.left) / before.width) * now.width);
     const top = fit(now.height, box.top, box.height, to.y - ((from.y - before.top) / before.height) * now.height);
