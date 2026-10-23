@@ -182,4 +182,4 @@ export function RightPanel() {
   );
 }
 
-const panelBtn = { justifyContent: 'flex-start' as const, gap: 12, padding: '15px 18px', fontSize: 16 };
+const panelBtn = { justifyContent: 'flex-start' as const, gap: 12, padding: '17px 20px', fontSize: 18 };

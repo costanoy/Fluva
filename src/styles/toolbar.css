@@ -1,10 +1,10 @@
 .toolbar {
-  height: 56px;
+  height: 64px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 16px;
+  padding: 0 18px;
   border-bottom: 2px solid var(--graphite);
   background: var(--paper-toolbar);
   overflow-x: auto;
@@ -13,7 +13,7 @@
 }
 
 .toolbar-icon {
-  width: 40px;
+  width: 46px;
   padding: 0;
 }
 
@@ -31,7 +31,7 @@
 }
 
 .toolbar-zoom {
-  height: 40px;
+  height: 46px;
   border-radius: 9px;
 }
 
@@ -40,9 +40,9 @@
 }
 
 .toolbar-zoom .seg-group-value {
-  width: 60px;
+  width: 69px;
   min-width: 60px;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .toolbar-mobile,
@@ -68,19 +68,19 @@
   }
 
   .toolbar-mobile .toolbar-icon {
-    width: 44px;
-    height: 44px;
+    width: 51px;
+    height: 51px;
     border: none;
   }
 
   .page-select {
     position: relative;
-    height: 44px;
-    padding: 0 12px;
+    height: 51px;
+    padding: 0 14px;
     border-radius: 9px;
     border: 2px solid var(--graphite);
     background: var(--paper-raised);
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 700;
     display: flex;
     align-items: center;
@@ -93,7 +93,7 @@
     inset: 0;
     opacity: 0;
     cursor: pointer;
-    font-size: 16px;
+    font-size: 18.5px;
   }
 
   .page-select:focus-within {
@@ -114,7 +114,7 @@
   }
 
   .tabbar-btn {
-    height: 56px;
+    height: 64px;
     border: none;
     background: transparent;
     display: flex;
@@ -122,7 +122,7 @@
     align-items: center;
     justify-content: center;
     gap: 4px;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--graphite);
     cursor: pointer;
@@ -134,14 +134,14 @@
   }
 
   .tabbar-icon {
-    height: 28px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
   .tabbar-icon-active {
-    width: 44px;
+    width: 51px;
     border-radius: 999px;
     background: var(--ink-green);
   }
@@ -179,13 +179,13 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    min-height: 52px;
-    padding: 0 12px;
+    min-height: 60px;
+    padding: 0 14px;
     border: none;
     border-radius: 10px;
     background: transparent;
     font: inherit;
-    font-size: 16px;
+    font-size: 18.5px;
     font-weight: 700;
     color: var(--graphite);
     text-align: left;

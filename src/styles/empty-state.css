@@ -34,7 +34,7 @@
 }
 
 .site-brand-word {
-  font-size: 28px;
+  font-size: 30px;
 }
 
 .site-nav {
@@ -49,12 +49,12 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
+  min-height: 51px;
   border: none;
   background: transparent;
   padding: 0;
   font: inherit;
-  font-size: 16px;
+  font-size: 18.5px;
   font-weight: 600;
   color: var(--graphite);
   text-decoration: none;
@@ -70,13 +70,13 @@
 .lang-toggle {
   display: inline-flex;
   width: fit-content;
-  height: 36px;
+  height: 41px;
   border-radius: 9px;
 }
 
 .lang-toggle button {
   min-width: 40px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 800;
 }
 
@@ -86,8 +86,8 @@
 }
 
 .site-menu-btn {
-  width: 44px;
-  height: 44px;
+  width: 51px;
+  height: 51px;
   border-radius: 10px;
   border: 2px solid var(--graphite);
   background: transparent;
@@ -176,7 +176,7 @@
 }
 
 .home-title {
-  font-size: 50px;
+  font-size: 54px;
   line-height: 1.06;
   letter-spacing: -.01em;
   text-wrap: balance;
@@ -263,8 +263,8 @@
 }
 
 .dropzone-icon {
-  width: 54px;
-  height: 54px;
+  width: 62px;
+  height: 62px;
   border-radius: 50%;
   background: var(--ink-green);
   color: var(--graphite);
@@ -275,31 +275,31 @@
 }
 
 .dropzone-title {
-  font-size: 21px;
+  font-size: 24px;
   font-weight: 700;
   line-height: 1.3;
 }
 
 .dropzone-title-sm {
-  font-size: 19px;
+  font-size: 22px;
   margin-top: 8px;
 }
 
 .dropzone-sub {
-  font-size: 15px;
+  font-size: 17px;
   color: var(--graphite-muted);
 }
 
 .dropzone-btn {
   margin-top: 8px;
-  min-height: 46px;
-  font-size: 15px;
-  padding: 0 22px;
+  min-height: 53px;
+  font-size: 17px;
+  padding: 0 25px;
 }
 
 .dropzone-icon svg {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
 }
 
 .dropzone-over {
@@ -352,7 +352,7 @@
 .doc-card-tag {
   align-self: flex-start;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   background: var(--graphite);
   color: #FFFFFF;
@@ -361,7 +361,7 @@
 }
 
 .dropzone-over-title {
-  font-size: 60px;
+  font-size: 65px;
   line-height: 1;
   pointer-events: none;
 }
@@ -381,7 +381,7 @@
   justify-content: space-between;
   padding: 6px 18px;
   border-bottom: 1.5px solid var(--divider);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -391,7 +391,7 @@
 .queue-card-head .link-btn {
   text-transform: none;
   letter-spacing: 0;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .queue-row {
@@ -405,7 +405,7 @@
 .queue-row-name {
   flex: 1;
   min-width: 0;
-  font-size: 16px;
+  font-size: 18.5px;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -413,7 +413,7 @@
 }
 
 .queue-row-size {
-  font-size: 14px;
+  font-size: 16px;
   color: var(--graphite-muted);
   flex-shrink: 0;
 }
@@ -445,7 +445,7 @@
 }
 
 .eyebrow {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -458,7 +458,7 @@
 
 .queue-busy {
   padding: 0 18px 16px;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--graphite-muted);
 }
@@ -474,7 +474,7 @@
 }
 
 .home-tools-title {
-  font-size: 48px;
+  font-size: 52px;
   line-height: 1.05;
 }
 
@@ -508,8 +508,8 @@
 }
 
 .tool-card-icon {
-  width: 60px;
-  height: 60px;
+  width: 69px;
+  height: 69px;
   border-radius: 14px;
   display: flex;
   align-items: center;
@@ -536,13 +536,13 @@
 }
 
 .tool-card-name {
-  font-size: 19px;
+  font-size: 22px;
   font-weight: 700;
   line-height: 1.25;
 }
 
 .tool-card-sub {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--ink-green-text);
 }
@@ -580,12 +580,12 @@
 }
 
 .site-footer-logo .wordmark {
-  font-size: 26px;
+  font-size: 28px;
 }
 
 .site-footer-tagline {
   margin: 0;
-  font-size: 17px;
+  font-size: 19.5px;
   line-height: 1.5;
   font-weight: 500;
 }
@@ -602,12 +602,12 @@
   background: transparent;
   padding: 0;
   font: inherit;
-  font-size: 16px;
+  font-size: 18.5px;
   font-weight: 700;
   color: var(--graphite);
   text-decoration: none;
   cursor: pointer;
-  min-height: 44px;
+  min-height: 51px;
   display: inline-flex;
   align-items: center;
 }
@@ -626,7 +626,7 @@
   margin-top: 40px;
   padding-top: 18px;
   border-top: 2px solid var(--graphite);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
 }
 
@@ -647,13 +647,13 @@
 }
 
 .beta-card-title {
-  font-size: 42px;
+  font-size: 45.5px;
   line-height: 1.05;
 }
 
 .beta-card p {
   margin: 0;
-  font-size: 17px;
+  font-size: 19.5px;
   line-height: 1.6;
   color: var(--graphite-soft);
 }
@@ -661,7 +661,7 @@
 /* ------------------------------------------------------------ tablet */
 
 @media (max-width: 1100px) {
-  .home-title { font-size: 42px; }
+  .home-title { font-size: 45.5px; }
   .tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -673,7 +673,7 @@
 
   .site-header { padding: 18px 20px; }
   .site-brand-logo { width: 49px; height: 37px; }
-  .site-brand-word { font-size: 23px; }
+  .site-brand-word { font-size: 25px; }
   .site-nav { display: none; }
   .site-menu { display: block; }
 
@@ -684,7 +684,7 @@
   .home-art { display: none; }
 
   .home-title {
-    font-size: 30px;
+    font-size: 32.5px;
     line-height: 1.08;
   }
 
@@ -700,37 +700,37 @@
   }
 
   .dropzone-problem { padding: 20px 16px; }
-  .dropzone-icon { width: 48px; height: 48px; margin-bottom: 2px; }
-  .dropzone-icon svg { width: 24px; height: 24px; }
-  .dropzone-title { font-size: 18px; }
-  .dropzone-title-sm { font-size: 18px; }
-  .dropzone-sub { font-size: 14px; }
+  .dropzone-icon { width: 55px; height: 55px; margin-bottom: 2px; }
+  .dropzone-icon svg { width: 28px; height: 28px; }
+  .dropzone-title { font-size: 20.5px; }
+  .dropzone-title-sm { font-size: 20.5px; }
+  .dropzone-sub { font-size: 16px; }
 
   .dropzone-btn {
     width: 100%;
-    min-height: 48px;
-    font-size: 16px;
+    min-height: 55px;
+    font-size: 18.5px;
     margin-top: 6px;
   }
 
   .dropzone-over { min-height: 200px; }
   .dropzone-over-card { right: 16px; top: 16px; width: 70px; height: 90px; padding: 8px; }
-  .dropzone-over-title { font-size: 42px; }
+  .dropzone-over-title { font-size: 45.5px; }
 
   .alert { padding: 14px; gap: 12px; }
-  .alert-title { font-size: 16px; }
-  .alert-text { font-size: 14.5px; }
+  .alert-title { font-size: 18.5px; }
+  .alert-text { font-size: 16.5px; }
 
 
   .queue-actions { flex-direction: column; }
-  .queue-actions > .btn { min-height: 52px; }
+  .queue-actions > .btn { min-height: 60px; }
 
   .home-tools {
     padding: 48px 20px 40px;
     gap: 20px;
   }
 
-  .home-tools-title { font-size: 30px; line-height: 1.1; }
+  .home-tools-title { font-size: 32.5px; line-height: 1.1; }
   .home-tools-title .riso-shadow { transform: translate(2px, 2px) !important; }
 
   .tool-grid { gap: 12px; }
@@ -744,14 +744,14 @@
   }
 
   .tool-card-icon {
-    width: 46px;
-    height: 46px;
+    width: 53px;
+    height: 53px;
     border-radius: 12px;
     background-size: 6px 6px;
   }
 
-  .tool-card-icon svg { width: 24px; height: 24px; }
-  .tool-card-name { font-size: 16px; }
+  .tool-card-icon svg { width: 28px; height: 28px; }
+  .tool-card-name { font-size: 18.5px; }
 
   /* No celular as retículas formam um xadrez (2 colunas). */
   .tool-grid .tool-card:nth-child(4n + 1) .tool-card-icon,
@@ -773,19 +773,19 @@
 
   .site-footer-top { flex-direction: column; gap: 18px; }
   .site-footer-logo { display: none; }
-  .site-footer-tagline { font-size: 16px; font-weight: 600; }
+  .site-footer-tagline { font-size: 18.5px; font-weight: 600; }
   .site-footer-links { gap: 0 20px; }
-  .site-footer-links a, .site-footer-links button { font-size: 15px; }
+  .site-footer-links a, .site-footer-links button { font-size: 17px; }
 
   .site-footer-legal {
     margin-top: 18px;
     padding-top: 14px;
-    font-size: 13px;
+    font-size: 15px;
     flex-direction: column;
     gap: 2px;
   }
 
 
   .beta-card { margin: 8px 20px 48px; padding: 24px 20px; }
-  .beta-card-title { font-size: 30px; }
+  .beta-card-title { font-size: 32.5px; }
 }

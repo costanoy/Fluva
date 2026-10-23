@@ -15,7 +15,7 @@
 }
 
 .menu-heading {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -63,17 +63,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
 }
 
 .menu-row-desc {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--graphite-muted);
 }
 
 .menu-badge {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: .06em;
   background: var(--ink-pink-tint);
@@ -89,5 +89,5 @@
 }
 
 .format-tag-docx {
-  font-size: 11px;
+  font-size: 12.5px;
 }

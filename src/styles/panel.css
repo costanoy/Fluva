@@ -19,18 +19,18 @@
 }
 
 .panel-title {
-  font-size: 17px;
+  font-size: 19.5px;
   font-weight: 800;
   color: var(--graphite);
   margin-bottom: 2px;
 }
 
 .right-panel .btn-block {
-  min-height: 48px;
+  min-height: 55px;
   margin-top: 0;
-  padding: 0 16px;
+  padding: 0 18px;
   gap: 12px;
-  font-size: 15px;
+  font-size: 17px;
 }
 
 .right-panel .btn-block.btn-primary {
@@ -66,12 +66,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
-  padding: 8px 10px;
+  min-height: 46px;
+  padding: 9px 12px;
   border: none;
   background: transparent;
   border-radius: 9px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
   color: var(--graphite-muted);
@@ -86,7 +86,7 @@
 }
 
 .panel-label {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--graphite-muted);
   margin-top: 4px;
@@ -116,18 +116,18 @@
 
 .number-input,
 .text-input {
-  height: 42px;
-  padding: 0 12px;
+  height: 48px;
+  padding: 0 14px;
   border: 2px solid var(--graphite);
   border-radius: 9px;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
   background: #FFFFFF;
   color: var(--graphite);
 }
 
 .number-input {
-  width: 64px;
+  width: 74px;
   text-align: center;
 }
 
@@ -139,22 +139,22 @@ textarea.text-input {
   height: auto;
   padding: 10px 12px;
   resize: vertical;
-  font-size: 16px;
+  font-size: 18.5px;
   font-weight: 400;
   line-height: 1.5;
   min-height: 140px;
 }
 
 .unit-input {
-  height: 42px;
+  height: 48px;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 12px;
+  padding: 0 14px;
   border: 2px solid var(--graphite);
   border-radius: 9px;
   background: #FFFFFF;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
 }
 
@@ -194,7 +194,7 @@ textarea.text-input {
   border-right: 1.5px solid var(--graphite);
   text-align: center;
   font: inherit;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   background: #FFFFFF;
 }
@@ -205,7 +205,7 @@ textarea.text-input {
 }
 
 .panel-stepper button {
-  font-size: 18px;
+  font-size: 20.5px;
 }
 
 .style-toggles {
@@ -216,7 +216,7 @@ textarea.text-input {
 .style-toggles button {
   flex: 1;
   min-width: 42px;
-  font-size: 16px;
+  font-size: 18.5px;
 }
 
 .panel-field .style-toggles {
@@ -231,8 +231,8 @@ textarea.text-input {
 }
 
 .swatch {
-  width: 34px;
-  height: 34px;
+  width: 39px;
+  height: 39px;
   border-radius: 50%;
   cursor: pointer;
   border: 1.5px solid var(--graphite);
@@ -276,7 +276,7 @@ textarea.text-input {
 
 .shape-type-btn {
   flex: 1;
-  height: 44px;
+  height: 51px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -286,7 +286,7 @@ textarea.text-input {
   background: var(--paper-raised);
   color: var(--graphite);
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 16px;
   cursor: pointer;
 }
 
@@ -317,7 +317,7 @@ textarea.text-input {
   padding: 8px 10px;
   border-radius: 7px;
   cursor: pointer;
-  font-size: 15px;
+  font-size: 17px;
   width: 100%;
   border: none;
   text-align: left;
@@ -336,7 +336,7 @@ textarea.text-input {
   border: 1.5px solid var(--divider);
   border-radius: 9px;
   text-align: center;
-  font-size: 23px;
+  font-size: 25px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -347,7 +347,7 @@ textarea.text-input {
   background: var(--ink-green-tint);
   border: 2px solid var(--graphite);
   border-radius: 12px;
-  font-size: 14.5px;
+  font-size: 16.5px;
   color: var(--graphite);
   display: flex;
   flex-direction: column;
@@ -366,13 +366,13 @@ textarea.text-input {
 
 .compress-headline {
   font-weight: 800;
-  font-size: 15.5px;
+  font-size: 18px;
   padding-top: 4px;
   line-height: 1.45;
 }
 
 .panel-note {
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.55;
   color: var(--graphite-muted);
 }
@@ -381,12 +381,12 @@ textarea.text-input {
   margin-top: 4px;
   padding-top: 14px;
   border-top: 1.5px solid var(--divider);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.5;
 }
 
 .panel-empty {
-  font-size: 14.5px;
+  font-size: 16.5px;
   color: var(--graphite-muted);
   padding: 10px 0;
 }
@@ -398,7 +398,7 @@ textarea.text-input {
 }
 
 .panel-unit {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--graphite-muted);
   flex-shrink: 0;
@@ -406,7 +406,7 @@ textarea.text-input {
 
 .segmented {
   display: flex;
-  height: 42px;
+  height: 48px;
   border: 2px solid var(--graphite);
   border-radius: 9px;
   overflow: hidden;
@@ -418,7 +418,7 @@ textarea.text-input {
   border: none;
   padding: 0 6px;
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--graphite);
   cursor: pointer;
@@ -436,11 +436,11 @@ textarea.text-input {
   border-radius: 9px;
   border: 2px solid var(--graphite);
   background: #FFFFFF;
-  font-size: 15px;
+  font-size: 17px;
 }
 
 .font-detected-label {
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--graphite-muted);
@@ -451,7 +451,7 @@ textarea.text-input {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--graphite-muted);
 }
@@ -461,14 +461,14 @@ textarea.text-input {
 }
 
 .merge-order-meta {
-  font-size: 12.5px;
+  font-size: 14.5px;
   font-weight: 500;
   color: var(--graphite-muted);
   margin-left: 6px;
 }
 
 .merge-instructions {
-  font-size: 14.5px;
+  font-size: 16.5px;
   color: var(--graphite-muted);
   margin-bottom: 4px;
 }
@@ -489,7 +489,7 @@ textarea.text-input {
 }
 
 .merge-order-index {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--graphite-muted);
   width: 18px;
@@ -498,7 +498,7 @@ textarea.text-input {
 
 .merge-order-name {
   flex: 1;
-  font-size: 14.5px;
+  font-size: 16.5px;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -532,7 +532,7 @@ textarea.text-input {
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--graphite-muted);
 }
@@ -605,14 +605,14 @@ textarea.text-input {
 
 .chip {
   min-width: 52px;
-  height: 36px;
-  padding: 0 12px;
+  height: 41px;
+  padding: 0 14px;
   border: 2px solid var(--graphite);
   border-radius: 999px;
   background: #FFFFFF;
   color: var(--graphite);
   font-family: var(--font-body);
-  font-size: 13.5px;
+  font-size: 15.5px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -637,14 +637,14 @@ textarea.text-input {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 58px;
-  padding: 6px 4px;
+  min-height: 67px;
+  padding: 7px 5px;
   border: 2px solid var(--graphite);
   border-radius: 9px;
   background: var(--paper-raised);
   color: var(--graphite);
   font-family: var(--font-body);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -664,10 +664,10 @@ textarea.text-input {
 }
 
 .right-panel .panel-actions .btn {
-  min-height: 46px;
+  min-height: 53px;
   justify-content: center;
   gap: 8px;
-  padding: 0 10px;
+  padding: 0 12px;
 }
 
 .panel-note-tight {
@@ -713,7 +713,7 @@ textarea.text-input {
 }
 
 .filter-name {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.2;
   text-align: center;
@@ -732,7 +732,7 @@ textarea.text-input {
 }
 
 .adjust-group > summary {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 800;
   color: var(--graphite);
   cursor: pointer;
@@ -772,7 +772,7 @@ textarea.text-input {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 14.5px;
+  font-size: 16.5px;
   font-weight: 600;
   color: var(--graphite);
   cursor: pointer;
@@ -834,8 +834,8 @@ textarea.text-input {
 
 @media (pointer: coarse) {
   .range-field-reset {
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
   }
 
   /* Um dedo precisa de mais do que os 20px do botão deslizante. */

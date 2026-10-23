@@ -85,7 +85,7 @@ export function TextRunPanel() {
                 onClick={() => actions.setTextRunDraft({ fontKey: f.key })}
               >
                 <span style={{ fontFamily: f.cssFamily, fontWeight: 700 }}>{f.label}</span>
-                <span style={{ color: 'var(--color-neutral-600)', fontSize: 13 }}>{t('run.inPlaceOf', { names: f.metricMatches.slice(0, 2).join(', ') })}</span>
+                <span style={{ color: 'var(--color-neutral-600)', fontSize: 15 }}>{t('run.inPlaceOf', { names: f.metricMatches.slice(0, 2).join(', ') })}</span>
               </button>
             ))}
           </div>

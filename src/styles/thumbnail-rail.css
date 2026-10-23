@@ -14,7 +14,7 @@
 .thumb-rail-heading {
   align-self: flex-start;
   padding-left: 10px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--graphite-muted);
 }
@@ -26,7 +26,7 @@
 
 .thumb-rail-label {
   width: 100%;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--graphite-muted);
   margin-bottom: 4px;
@@ -34,7 +34,7 @@
 }
 
 .thumb-rail-empty {
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.5;
   color: var(--graphite-muted);
   padding: 8px 4px;
@@ -100,7 +100,7 @@
 }
 
 .thumb-page-label {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
   padding: 1px 9px;
@@ -115,7 +115,7 @@
 
 .thumb-add {
   width: 110px;
-  height: 48px;
+  height: 55px;
   flex-shrink: 0;
   border: 2px dashed var(--graphite);
   border-radius: 9px;
@@ -168,7 +168,7 @@
 }
 
 .merge-file-name {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -176,7 +176,7 @@
 }
 
 .merge-file-meta {
-  font-size: 12.5px;
+  font-size: 14.5px;
   color: var(--graphite-muted);
 }
 
