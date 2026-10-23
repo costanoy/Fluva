@@ -1,8 +1,18 @@
+import type { MouseEvent } from 'react';
 import { Logo } from './Logo';
 import { useInstallPrompt } from '../hooks/useInstallPrompt';
 import { t } from '../i18n/translations';
 
-const CONTACT_EMAIL = 'vinicostamaga@outlook.com';
+const CONTACT_URL = 'https://portfolio.cyberhat.com.br';
+
+/** In the app, a link would open the page inside the app's own window, with
+ * no way back: it goes to the system's browser instead. */
+function openOutside(e: MouseEvent<HTMLAnchorElement>) {
+  if (!('__TAURI_INTERNALS__' in window)) return;
+  e.preventDefault();
+  const url = e.currentTarget.href;
+  void import('@tauri-apps/api/core').then(({ invoke }) => invoke('plugin:opener|open_url', { url }));
+}
 
 /** Rodapé verde com grão e a logo mono. */
 export function Footer() {
@@ -22,7 +32,9 @@ export function Footer() {
           </p>
         </div>
         <div className="site-footer-links">
-          <a href={`mailto:${CONTACT_EMAIL}`}>{t('footer.contact')}</a>
+          <a href={CONTACT_URL} target="_blank" rel="noopener noreferrer" onClick={openOutside}>
+            {t('footer.contact')}
+          </a>
           {install && (
             <button type="button" onClick={install}>
               {t('home.installApp')}
