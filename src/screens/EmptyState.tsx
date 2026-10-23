@@ -136,8 +136,12 @@ export function EmptyState() {
   // "Fluva: editor de PDF…": o nome da marca vai em verde, o resto em grafite.
   const [brand, ...tagline] = t('home.pageTitle').split(':');
 
+  // With files picked, what to do with them waits big at the bottom of the
+  // screen, in the middle — as it does in the reader for a single file.
+  const choosing = hasQueue && !converting;
+
   return (
-    <div className="home grain">
+    <div className={`home grain${choosing ? ' home-choosing' : ''}`}>
       {/* Cabeçalho, título e a caixa de envio cabem juntos na primeira tela,
           sem rolar: a caixa ocupa a altura que sobrar. */}
       <div className="home-fold">
@@ -225,19 +229,8 @@ export function EmptyState() {
               </div>
             ))}
 
-            <div className="queue-actions">
-              {!converting ? (
-                <>
-                  <Button variant="primary" onClick={actions.openQueue} disabled={!!state.busy}>
-                    <Icon name="pencil" size={18} />
-                    {t('home.edit')}
-                  </Button>
-                  <Button onClick={() => setConverting(true)} disabled={!!state.busy}>
-                    <Icon name="convert" size={18} />
-                    {t('home.changeFormat')}
-                  </Button>
-                </>
-              ) : (
+            {converting && (
+              <div className="queue-actions">
                 <div className="convert-box">
                   <div className="eyebrow">{t('home.convertAllTo')}</div>
                   <div className="seg-group convert-seg">
@@ -262,8 +255,8 @@ export function EmptyState() {
                     </Button>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
             {state.busy && (
               <div className="queue-busy" role="status">
                 {state.busy.label}
@@ -275,6 +268,19 @@ export function EmptyState() {
 
       </div>
       </div>
+
+      {choosing && (
+        <div className="queue-choices">
+          <button className="btn btn-secondary queue-choice" onClick={() => setConverting(true)} disabled={!!state.busy}>
+            <Icon name="convert" size={22} />
+            {t('home.changeFormat')}
+          </button>
+          <button className="btn btn-primary queue-choice" onClick={actions.openQueue} disabled={!!state.busy}>
+            <Icon name="pencil" size={22} />
+            {t('home.edit')}
+          </button>
+        </div>
+      )}
 
       <section className="home-tools" id="ferramentas">
         <RisoHeading as="h2" className="home-tools-title" shadowText={t('home.featuresTitle')}>
