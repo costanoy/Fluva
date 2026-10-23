@@ -179,6 +179,12 @@ async function answer(cdp, cmd, payload) {
       return { ok: true };
     case 'inspectPdf':
       return inspectPdf(Buffer.from(payload.b64, 'base64'));
+    case 'screenshot': {
+      // For a person to look at afterwards, in the output folder.
+      const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(join(OUT, `${inApp ? 'app' : 'site'}-${payload.name.replace(/[\\/]/g, '_')}.png`), Buffer.from(shot.result.data, 'base64'));
+      return { ok: true };
+    }
     case 'secrets':
       return { certPassword: CERT_PASSWORD, pdfPassword: PDF_PASSWORD };
     default:

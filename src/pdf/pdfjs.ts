@@ -19,13 +19,15 @@ export interface OpenedPdf {
 /**
  * pdf.js takes ownership of (and detaches) the buffer it is given, so callers must
  * always hand it a copy and keep the pristine original for pdf-lib to write with.
+ * `password` opens a PDF that needs one (see `loadFile`).
  */
-export async function openWithPdfJs(bytes: Uint8Array): Promise<OpenedPdf> {
+export async function openWithPdfJs(bytes: Uint8Array, password?: string): Promise<OpenedPdf> {
   const copy = new Uint8Array(bytes.length);
   copy.set(bytes);
   // Teardown lives on the loading task, not on the document proxy.
   const task = pdfjsLib.getDocument({
     data: copy,
+    password,
     wasmUrl: `${assets}wasm/`,
     cMapUrl: `${assets}cmaps/`,
     cMapPacked: true,

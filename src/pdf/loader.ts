@@ -30,6 +30,31 @@ export async function readFileBytes(file: File): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
+/**
+ * Asks the person for a PDF's opening password (the app shows a dialog, see
+ * PasswordDialog): what they typed, or null when they gave up. `wrong` says
+ * the last one tried didn't open it.
+ */
+export type PasswordAsker = (fileName: string, wrong: boolean) => Promise<string | null>;
+
+let askPassword: PasswordAsker | null = null;
+
+export function setPasswordAsker(asker: PasswordAsker | null) {
+  askPassword = asker;
+}
+
+/** The person closed the password dialog: the file isn't opened, and that's no error. */
+export class PasswordCancelled extends Error {
+  constructor() {
+    super('cancelled');
+    this.name = 'PasswordCancelled';
+  }
+}
+
+/** Passwords that opened a file: the reader and then the editor open the same
+ * one, and the person shouldn't be asked twice. In memory, per File, only. */
+const knownPasswords = new WeakMap<File, string>();
+
 export interface LoadedFile {
   source: SourceDoc;
   pages: WorkPage[];
@@ -48,20 +73,33 @@ export async function loadFile(file: File): Promise<LoadedFile> {
 
 async function loadPdfFile(file: File, bytes: Uint8Array): Promise<LoadedFile> {
   let opened;
-  try {
-    opened = await openWithPdfJs(bytes);
-  } catch (e) {
-    // Logged so the real cause is visible in DevTools — the message shown to the
-    // user is a guess, and a wrong guess is worse than no guess at all.
-    console.error(`[Fluva] pdf.js failed to open "${file.name}":`, e);
-    // The two causes a person can act on get a plain explanation instead of
-    // pdf.js's own English ("No password given", "Invalid PDF structure").
-    const kind = e instanceof Error ? e.name : '';
-    if (kind === 'PasswordException') throw new Error(t('loader.pdfPasswordProtected', { name: file.name }));
-    if (kind === 'InvalidPDFException') throw new Error(t('loader.pdfInvalid', { name: file.name }));
-    const detail = e instanceof Error ? e.message : String(e);
-    throw new Error(t('loader.pdfOpenError', { name: file.name, detail }));
+  let password = knownPasswords.get(file);
+  for (;;) {
+    try {
+      opened = await openWithPdfJs(bytes, password);
+      break;
+    } catch (e) {
+      const kind = e instanceof Error ? e.name : '';
+      // Needs a password to open: asked for, and asked again while the one
+      // typed doesn't open it (pdf.js's code 2: incorrect).
+      if (kind === 'PasswordException' && askPassword) {
+        const answer = await askPassword(file.name, (e as { code?: number }).code === 2);
+        if (answer === null) throw new PasswordCancelled();
+        password = answer;
+        continue;
+      }
+      // Logged so the real cause is visible in DevTools — the message shown to the
+      // user is a guess, and a wrong guess is worse than no guess at all.
+      console.error(`[Fluva] pdf.js failed to open "${file.name}":`, e);
+      // The two causes a person can act on get a plain explanation instead of
+      // pdf.js's own English ("No password given", "Invalid PDF structure").
+      if (kind === 'PasswordException') throw new Error(t('loader.pdfPasswordProtected', { name: file.name }));
+      if (kind === 'InvalidPDFException') throw new Error(t('loader.pdfInvalid', { name: file.name }));
+      const detail = e instanceof Error ? e.message : String(e);
+      throw new Error(t('loader.pdfOpenError', { name: file.name, detail }));
+    }
   }
+  if (password !== undefined) knownPasswords.set(file, password);
   const pdf = opened.doc;
 
   const sourceId = newId('src');
@@ -100,6 +138,7 @@ async function loadPdfFile(file: File, bytes: Uint8Array): Promise<LoadedFile> {
     pageCount: pages.length,
     pageSizes,
     pageRotations,
+    ...(password !== undefined ? { password } : {}),
   };
 
   return { source, pages };

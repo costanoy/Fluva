@@ -21,7 +21,7 @@ import {
 import { compactImageEdits, flippedPhoto, photoScaleLimits, withPhotoGeometry } from '../pdf/imageEdit';
 import { aspectInPage, clampRect, coversPage, fitAspect, type CropAspect } from '../pdf/crop';
 import { thicknessToPoints } from '../pdf/annotations';
-import { FILE_ACCEPT, formatBytes, IMAGE_ACCEPT, imageMimeOf, isAcceptedFile, loadFile, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
+import { FILE_ACCEPT, formatBytes, IMAGE_ACCEPT, imageMimeOf, isAcceptedFile, loadFile, setPasswordAsker, stripExtension, fileKind, MAX_FILE_BYTES } from '../pdf/loader';
 import { TEXT_BASELINE_RATIO, isCoveredRect } from '../pdf/geometry';
 import { canvasToBlob, releaseAll } from '../pdf/render';
 import type { CompressLevel, SplitResult } from '../pdf/ops';
@@ -77,6 +77,7 @@ const initialState: AppState = {
   exportOpen: false,
   exportFormat: 'pdf',
   signDialogOpen: false,
+  passwordRequest: null,
   mergeSelected: [],
   splitMode: 'range',
   splitRangeSubMode: 'auto',
@@ -207,8 +208,9 @@ export function useFluvaStore() {
         set({ busy: null });
         return result;
       } catch (err) {
-        // The save sheet closed without saving (Android): not an error.
-        if (err instanceof Error && err.name === 'SaveCancelled') {
+        // The save sheet closed without saving (Android), or the password a
+        // PDF needed wasn't given: not an error.
+        if (err instanceof Error && (err.name === 'SaveCancelled' || err.name === 'PasswordCancelled')) {
           set({ busy: null });
           return null;
         }
@@ -219,6 +221,19 @@ export function useFluvaStore() {
     },
     [set],
   );
+
+  /** Who's waiting for the password dialog's answer (see `setPasswordAsker`). */
+  const passwordReply = useRef<((password: string | null) => void) | null>(null);
+  useEffect(() => {
+    setPasswordAsker(
+      (fileName, wrong) =>
+        new Promise((resolve) => {
+          passwordReply.current = resolve;
+          set({ passwordRequest: { fileName, wrong } });
+        }),
+    );
+    return () => setPasswordAsker(null);
+  }, [set]);
 
   const actions = useMemo(() => {
     const currentPage = (st: AppState): WorkPage | undefined => st.doc.pages[st.activePageIndex];
@@ -1496,6 +1511,14 @@ export function useFluvaStore() {
       dismissToast: () => set({ toast: null }),
 
       /* ------------------------------------------------------------------ sign */
+
+      /** The password dialog's answer: what was typed, or null for "Cancelar". */
+      answerPassword: (password: string | null) => {
+        const reply = passwordReply.current;
+        passwordReply.current = null;
+        set({ passwordRequest: null });
+        reply?.(password);
+      },
 
       setSignDialogOpen: (open: boolean) =>
         (open && settlingCrop(stateRef.current) ? mutate : set)((st) => ({ ...(open ? settleCrop(st) : {}), signDialogOpen: open, exportOpen: false })),

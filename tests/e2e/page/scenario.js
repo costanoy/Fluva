@@ -953,6 +953,85 @@
   parts.layoutLaptop = (R) => layout(R, 1280, 720, false);
   parts.layoutPhone = (R) => layout(R, 390, 844, true);
 
+  /** Drops test files on the home screen, as if picked. */
+  const dropFiles = async (names) => {
+    const files = await Promise.all(names.map((n) => window.__file(n)));
+    const dt = new DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    document.querySelector('.dropzone').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+  };
+  /** Types into an input the way a person does (React sees it). */
+  const typeInto = (input, value) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  /** How many pixels of a canvas carry ink (not near-white). */
+  const inkIn = (canvas) => {
+    const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] < 128 && d[i + 1] < 128 && d[i + 2] < 128) n++;
+    return n;
+  };
+
+  parts.password = async (R) => {
+    const { pdfPassword } = await window.__qa('secrets');
+    await dropFiles(['protegido-senha.pdf']);
+    const dialog = await until(() => document.querySelector('.password-dialog'), 10000);
+    R.ok('a PDF with an opening password asks for it', !!dialog && text(dialog).includes('protegido-senha.pdf'), text(dialog?.querySelector('.dialog-text')));
+    const input = () => document.querySelector('.password-dialog input');
+    const openBtn = () => [...document.querySelectorAll('.password-dialog button')].find((b) => text(b) === 'Abrir');
+    typeInto(input(), 'errada');
+    await wait(100);
+    openBtn().click();
+    const wrong = await until(() => /Senha incorreta/.test(text(document.querySelector('.password-dialog'))), 10000);
+    await window.__shot('senha-incorreta');
+    R.ok('a wrong password says so and asks again', !!wrong && input().value === '');
+    typeInto(input(), pdfPassword);
+    await wait(100);
+    openBtn().click();
+    const shown = await until(() => !document.querySelector('.password-dialog') && document.querySelector('.reader-page canvas')?.width > 1, 15000);
+    await wait(800);
+    const canvas = document.querySelector('.reader-page canvas');
+    R.ok('the right password opens it in the reader, its text drawn', !!shown && inkIn(canvas) > 200, `${canvas?.width}×${canvas?.height}, ${canvas ? inkIn(canvas) : 0} dark pixels`);
+    document.querySelectorAll('.reader-choices .reader-choice')[1].click();
+    await until(() => document.querySelector('.toolbar') || document.querySelector('.password-dialog'), 20000);
+    await wait(1500);
+    R.ok('"Editar" opens it without asking again', !!document.querySelector('.toolbar') && !document.querySelector('.password-dialog'));
+    const runs = await until(() => document.querySelectorAll('.text-run').length, 10000);
+    R.ok('its text can be clicked to edit', runs > 0, `${runs} text runs`);
+    btn(/^Adicionar texto/)?.click();
+    await wait(800);
+    const pdf = await exportAs(/^PDF/);
+    await window.__sink(pdf.blob, 'senha-exportado.pdf');
+    const info = await window.__inspectPdf(pdf.blob);
+    R.ok('the exported PDF opens without a password (its page as an image)', info.encrypted === false && info.pages === 1 && info.images.length === 1, JSON.stringify({ encrypted: info.encrypted, pages: info.pages, images: info.images.length }));
+    const toast = text(document.querySelector('.toast'));
+    R.ok('…and says so', /protegido/.test(toast) && /abre sem senha/.test(toast), toast);
+  };
+
+  parts.passwordCancel = async (R) => {
+    await dropFiles(['protegido-senha.pdf']);
+    await until(() => document.querySelector('.password-dialog'), 10000);
+    [...document.querySelectorAll('.password-dialog button')].find((b) => text(b) === 'Cancelar').click();
+    await until(() => document.querySelector('.dropzone') && !document.querySelector('.password-dialog'), 10000);
+    await wait(500);
+    R.ok('"Cancelar" goes back home, with no error', !!document.querySelector('.dropzone') && !document.querySelector('.reader-viewport') && !document.querySelector('.alert'), text(document.querySelector('.alert')));
+    // Among several files: cancelling leaves them all unopened, quietly.
+    await dropFiles(['protegido-senha.pdf', 'texto.pdf']);
+    await until(() => document.querySelector('.queue-choices'), 5000);
+    document.querySelector('.queue-choices .btn-primary').click();
+    await until(() => document.querySelector('.password-dialog'), 10000);
+    [...document.querySelectorAll('.password-dialog button')].find((b) => text(b) === 'Cancelar').click();
+    await wait(1000);
+    R.ok('…and among several files too', !document.querySelector('.toolbar') && document.querySelectorAll('.queue-row').length === 2 && !document.querySelector('.alert'), text(document.querySelector('.alert')));
+    // A PDF protected only by its author opens without asking.
+    document.querySelectorAll('.queue-row .alert-close').forEach((b) => b.click());
+    await wait(300);
+    await dropFiles(['protegido-dono.pdf']);
+    const opened = await until(() => document.querySelector('.reader-page canvas')?.width > 1 || document.querySelector('.password-dialog'), 15000);
+    R.ok('a PDF protected only by its author opens without asking', !!opened && !document.querySelector('.password-dialog'));
+  };
+
   parts.wide = async (R) => {
     R.ok('opens a 16400 px wide image', await open(['largo-16400.png']));
     const before = window.__dl.length;

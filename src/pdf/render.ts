@@ -11,7 +11,7 @@ const bitmapCache = new Map<string, Promise<ImageBitmap>>();
 export async function getPdfDoc(source: SourceDoc): Promise<PDFDocumentProxy> {
   let entry = docCache.get(source.id);
   if (!entry) {
-    entry = openWithPdfJs(source.bytes);
+    entry = openWithPdfJs(source.bytes, source.password);
     docCache.set(source.id, entry);
   }
   return (await entry).doc;

@@ -3,6 +3,7 @@ import { AppProvider, useApp } from './state/AppContext';
 import { TopBar } from './screens/TopBar';
 import { EmptyState } from './screens/EmptyState';
 import { ReaderScreen } from './screens/ReaderScreen';
+import { PasswordDialog } from './components/PasswordDialog';
 import { BetaScreen } from './screens/BetaScreen';
 import { t } from './i18n/translations';
 import { imageMimeFromName } from './pdf/loader';
@@ -118,6 +119,7 @@ function AppShell() {
           <EditingScreen />
         </Suspense>
       )}
+      <PasswordDialog />
     </div>
   );
 }

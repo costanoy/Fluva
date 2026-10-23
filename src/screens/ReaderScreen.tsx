@@ -62,7 +62,10 @@ export function ReaderScreen() {
         if (!cancelled) setLoaded(result);
       })
       .catch((e) => {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
+        if (cancelled) return;
+        // The password it needed wasn't given: back where the file came from.
+        if (e instanceof Error && e.name === 'PasswordCancelled') goBack();
+        else setLoadError(e instanceof Error ? e.message : String(e));
       });
     return () => {
       cancelled = true;

@@ -43,6 +43,8 @@
   };
   /** Keeps a file the page made, in the run's output folder. */
   window.__sink = async (blob, name) => window.__qa('save', { name, b64: await toBase64(blob) });
+  /** A screenshot of the page as it is, saved in the output folder as `name`.png. */
+  window.__shot = (name) => window.__qa('screenshot', { name });
   /** What verify.mjs finds in a PDF: its signatures checked, their widgets, its images. */
   window.__inspectPdf = async (blob) => window.__qa('inspectPdf', { b64: await toBase64(blob) });
 })();

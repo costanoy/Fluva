@@ -29,6 +29,9 @@ export interface SourceDoc {
   /** A photo with nothing see-through in it (known from its format, not by
    * reading pixels back — which Safari's anti-fingerprinting blurs). */
   opaque?: boolean;
+  /** The password a PDF needed to open, as typed — held in memory while the
+   * document is open, for the PDF reader to open it again; never stored. */
+  password?: string;
   /** The file as opened, when `bytes` is a PNG or JPEG written from it (a
    * WebP, GIF, BMP or AVIF): what "before" and "as it came" mean. */
   original?: { bytes: Uint8Array; mime: string };

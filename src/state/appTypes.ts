@@ -149,6 +149,8 @@ export interface AppState {
   exportOpen: boolean;
   exportFormat: ExportFormat;
   signDialogOpen: boolean;
+  /** A PDF being opened needs its password: the dialog asking for it is up. */
+  passwordRequest: { fileName: string; wrong: boolean } | null;
   mergeSelected: string[];
   splitMode: SplitMode;
   splitRangeSubMode: SplitRangeSubMode;
