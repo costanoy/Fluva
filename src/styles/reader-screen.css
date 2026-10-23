@@ -157,11 +157,19 @@
   min-height: 0;
   overflow: auto;
   display: flex;
-  justify-content: center;
+  /* Not centred by the flexbox: a page wider than the view would overflow
+     on the left too, where it can't be scrolled to. The page's own auto
+     margins centre it while it fits. */
+  justify-content: flex-start;
   align-items: flex-start;
   /* Room under the page for the choices floating over it. */
   padding: 28px 24px 140px;
   position: relative;
+}
+
+/* While the zoom changes, the page doesn't slide: it grows from the anchor at once. */
+.reader-viewport-zooming * {
+  transition: none !important;
 }
 
 .reader-page-wrap {

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useApp } from '../state/AppContext';
 import { PageView } from '../components/PageView';
 import { OverlayLayer } from '../components/OverlayLayer';
@@ -39,6 +39,25 @@ export function EditorCanvas() {
   // so the background-click handler below can ignore it instead of clearing the
   // selection the user was never trying to change.
   const didPanRef = useRef(false);
+  /** Where the next zoom change is centred, on screen: the point of the
+   * page that was at `from` ends up at `to` — the pointer for the wheel (the
+   * same point), the fingers for a pinch (which also move). Unset (the
+   * toolbar's buttons), it's the middle of the view. */
+  const zoomAnchor = useRef<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(null);
+  const lastScale = useRef<number | null>(null);
+  /** The scale asked for but maybe not drawn yet: a touchpad sends many
+   * wheel events a frame, each one building on the last. */
+  const wantedScale = useRef<number | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  /** Where the page was on screen after the last render. */
+  const lastRect = useRef<DOMRect | null>(null);
+  /** The fingers on the canvas, for a two-finger pinch. */
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; scale: number; mid: { x: number; y: number } } | null>(null);
+  /** Set while the zoom is changing: no transition then, so the page grows
+   * from the anchor at once instead of sliding there afterwards. */
+  const [zooming, setZooming] = useState(false);
+  const zoomingTimer = useRef(0);
 
   const activePage = state.doc.pages[state.activePageIndex];
   const zoom = state.zoom;
@@ -115,6 +134,63 @@ export function EditorCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeScale]);
 
+  // A zoom keeps its anchor in place: measured where the page was before and
+  // where the new size put it, the page is moved so the point that was under
+  // the anchor still is. Zoomed out until the page fits, it settles back in
+  // the middle; zoomed in, its edges can't be pulled in past the padding.
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    const area = containerRef.current;
+    const prev = lastScale.current;
+    const before = lastRect.current;
+    lastScale.current = safeScale;
+    wantedScale.current = null;
+    if (!stage || !area) return;
+    const now = stage.getBoundingClientRect();
+    lastRect.current = now;
+    if (prev === null || prev === safeScale || !before || !before.width || !before.height) return;
+    const box = area.getBoundingClientRect();
+    const middle = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    const { from, to } = zoomAnchor.current ?? { from: middle, to: middle };
+    zoomAnchor.current = null;
+    const fit = (size: number, areaStart: number, areaSize: number, want: number) => {
+      // Fits with its margins: in the middle.
+      if (size + CANVAS_PADDING * 2 <= areaSize) return areaStart + (areaSize - size) / 2;
+      return Math.min(areaStart + CANVAS_PADDING, Math.max(areaStart + areaSize - CANVAS_PADDING - size, want));
+    };
+    const left = fit(now.width, box.left, box.width, to.x - ((from.x - before.left) / before.width) * now.width);
+    const top = fit(now.height, box.top, box.height, to.y - ((from.y - before.top) / before.height) * now.height);
+    const dx = left - now.left;
+    const dy = top - now.top;
+    if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+    setZooming(true);
+    window.clearTimeout(zoomingTimer.current);
+    zoomingTimer.current = window.setTimeout(() => setZooming(false), 250);
+  });
+
+  useEffect(() => () => window.clearTimeout(zoomingTimer.current), []);
+
+  // The wheel is listened to directly, not through React (whose wheel
+  // listener can't stop the browser): a touchpad pinch arrives as a wheel
+  // with Ctrl held, and would otherwise zoom the whole app instead of the page.
+  const wheelHandler = useRef<(e: WheelEvent) => void>(() => {});
+  const wheelTarget = useRef<HTMLElement | null>(null);
+  const onWheelNative = useRef((e: WheelEvent) => wheelHandler.current(e)).current;
+  useEffect(() => {
+    const el = containerRef.current;
+    if (el === wheelTarget.current) return;
+    wheelTarget.current?.removeEventListener('wheel', onWheelNative);
+    el?.addEventListener('wheel', onWheelNative, { passive: false });
+    wheelTarget.current = el;
+  });
+  useEffect(
+    () => () => {
+      wheelTarget.current?.removeEventListener('wheel', onWheelNative);
+      wheelTarget.current = null;
+    },
+    [onWheelNative],
+  );
+
   // The split and reorder tools replace the normal single-page editing view
   // entirely — split with a live preview of how the chosen split will come
   // apart, reorder with a draggable grid of every page — showing just the
@@ -130,13 +206,42 @@ export function EditorCanvas() {
     return <div className="canvas-area" ref={containerRef} />;
   }
 
-  const handleWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
+  wheelHandler.current = (e: WheelEvent) => {
     e.preventDefault();
-    const factor = Math.exp(-e.deltaY * 0.0018);
-    actions.setZoom(clampScale(safeScale * factor));
+    // Lines (Firefox's mouse wheel) to pixels.
+    const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    const current = wantedScale.current ?? safeScale;
+    const next = clampScale(current * Math.exp(-delta * 0.0018));
+    if (next === current) return;
+    const at = { x: e.clientX, y: e.clientY };
+    zoomAnchor.current = { from: zoomAnchor.current?.from ?? at, to: at };
+    wantedScale.current = next;
+    actions.setZoom(next);
+  };
+
+  const pinchState = () => {
+    const [a, b] = [...touches.current.values()];
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
   };
 
   const handlePanPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      // A second finger: the pan becomes a pinch.
+      if (touches.current.size === 2) {
+        const { dist, mid } = pinchState();
+        pinch.current = { dist: Math.max(1, dist), scale: safeScale, mid };
+        panDrag.current = null;
+        didPanRef.current = true;
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* the pinch tracks without it */
+        }
+        return;
+      }
+      if (touches.current.size > 2) return;
+    }
     // Left mouse button (or touch/pen) only.
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     // Pointer capture is deliberately NOT taken here yet. Capturing immediately
@@ -148,6 +253,25 @@ export function EditorCanvas() {
   };
 
   const handlePanPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (touches.current.has(e.pointerId)) touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = pinch.current;
+    if (p && touches.current.size >= 2) {
+      const { dist, mid } = pinchState();
+      // The page grows or shrinks around the fingers, and follows them.
+      const current = wantedScale.current ?? safeScale;
+      const next = clampScale((p.scale * dist) / p.dist);
+      if (next !== current) {
+        zoomAnchor.current = { from: zoomAnchor.current?.from ?? p.mid, to: mid };
+        wantedScale.current = next;
+        actions.setZoom(next);
+      } else if (zoomAnchor.current) {
+        zoomAnchor.current = { ...zoomAnchor.current, to: mid };
+      } else {
+        setPan((cur) => ({ x: cur.x + mid.x - p.mid.x, y: cur.y + mid.y - p.mid.y }));
+      }
+      p.mid = mid;
+      return;
+    }
     const drag = panDrag.current;
     if (!drag) return;
     const dx = e.clientX - drag.startX;
@@ -168,7 +292,10 @@ export function EditorCanvas() {
     setPan({ x: drag.originX + dx, y: drag.originY + dy });
   };
 
-  const handlePanPointerUp = () => {
+  const handlePanPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    touches.current.delete(e.pointerId);
+    // The finger left after a pinch doesn't start a pan from where it is.
+    if (pinch.current && touches.current.size < 2) pinch.current = null;
     panDrag.current = null;
     setIsPanning(false);
   };
@@ -195,16 +322,15 @@ export function EditorCanvas() {
 
   return (
     <div
-      className={`canvas-area${isPanning ? ' canvas-area-panning' : ''}`}
+      className={`canvas-area${isPanning ? ' canvas-area-panning' : ''}${zooming || (lastScale.current !== null && lastScale.current !== safeScale) ? ' canvas-area-zooming' : ''}`}
       ref={containerRef}
       onClick={handleBackgroundClick}
-      onWheel={handleWheel}
       onPointerDown={handlePanPointerDown}
       onPointerMove={handlePanPointerMove}
       onPointerUp={handlePanPointerUp}
       onPointerCancel={handlePanPointerUp}
     >
-      <div className="canvas-stage" style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}>
+      <div className="canvas-stage" ref={stageRef} style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}>
         <PageView
           page={page}
           source={page.sourceId ? state.doc.sources[page.sourceId] : undefined}

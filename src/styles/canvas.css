@@ -20,6 +20,13 @@
   cursor: grabbing;
 }
 
+/* While the zoom changes, nothing slides: the page grows from where the
+   pointer (or the pinch) is, at once, everything on it in step. */
+.canvas-area-zooming *,
+.canvas-area-zooming *::before {
+  transition: none !important;
+}
+
 .canvas-stage {
   position: relative;
   line-height: 0;

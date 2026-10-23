@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
 import { Logo } from '../components/Logo';
 import { PageView } from '../components/PageView';
@@ -35,6 +35,17 @@ export function ReaderScreen() {
   const [formatOpen, setFormatOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [available, setAvailable] = useState({ width: 800, height: 600 });
+  /** Where the next zoom is centred, on screen: the pointer for Ctrl +
+   * wheel (a touchpad pinch); unset, the middle of the view. */
+  const zoomAnchor = useRef<{ x: number; y: number } | null>(null);
+  const lastScale = useRef<number | null>(null);
+  /** The scale asked for but maybe not drawn yet (many wheel events a frame). */
+  const wantedScale = useRef<number | null>(null);
+  /** Where the page was on screen after the last render. */
+  const lastRect = useRef<DOMRect | null>(null);
+  const [zooming, setZooming] = useState(false);
+  const zoomingTimer = useRef(0);
+  const wheelHandler = useRef<(e: WheelEvent) => void>(() => {});
 
   const file = state.readerFile;
 
@@ -67,6 +78,49 @@ export function ReaderScreen() {
     return () => observer.disconnect();
   }, []);
 
+  // Ctrl + wheel (and a touchpad pinch, which arrives as one) zooms the page,
+  // not the whole app: listened to directly, since React's wheel listener
+  // can't stop the browser.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => wheelHandler.current(e);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(zoomingTimer.current), []);
+
+  // A zoom keeps the point under its anchor where it was: measured where the
+  // page was before and where the new size put it, the view is scrolled by
+  // the difference. (The scale the page is drawn at is on the viewport, as
+  // data-scale.)
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    const wrap = el?.querySelector('.reader-page-wrap');
+    const scale = Number(el?.dataset.scale) || null;
+    const prev = lastScale.current;
+    const before = lastRect.current;
+    lastScale.current = scale;
+    wantedScale.current = null;
+    if (!el || !wrap || !scale) {
+      lastRect.current = null;
+      return;
+    }
+    const now = wrap.getBoundingClientRect();
+    if (prev && prev !== scale && before && before.width && before.height) {
+      const box = el.getBoundingClientRect();
+      const a = zoomAnchor.current ?? { x: box.left + el.clientWidth / 2, y: box.top + el.clientHeight / 2 };
+      el.scrollLeft += now.left - (a.x - ((a.x - before.left) / before.width) * now.width);
+      el.scrollTop += now.top - (a.y - ((a.y - before.top) / before.height) * now.height);
+      setZooming(true);
+      window.clearTimeout(zoomingTimer.current);
+      zoomingTimer.current = window.setTimeout(() => setZooming(false), 250);
+    }
+    zoomAnchor.current = null;
+    lastRect.current = wrap.getBoundingClientRect();
+  });
+
   if (!file) return null;
 
   const total = loaded?.pages.length ?? 0;
@@ -79,6 +133,18 @@ export function ReaderScreen() {
   const defaultScale = Number.isFinite(fitWidthScale) && fitWidthScale > 0 ? Math.min(fitWidthScale, isNarrow ? 2 : 1) : 1;
   const safeScale = clampScale(zoom ?? defaultScale);
   const zoomLabel = zoom === null && isNarrow ? t('reader.fit') : `${Math.round(safeScale * 100)}%`;
+
+  wheelHandler.current = (e: WheelEvent) => {
+    if (!e.ctrlKey || !loaded) return;
+    e.preventDefault();
+    const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    const current = wantedScale.current ?? safeScale;
+    const next = clampScale(current * Math.exp(-delta * 0.0025));
+    if (next === current) return;
+    zoomAnchor.current = { x: e.clientX, y: e.clientY };
+    wantedScale.current = next;
+    setZoom(next);
+  };
 
   const meta = [
     loaded ? (total === 1 ? t('topbar.page', { count: total }) : t('topbar.pages', { count: total })) : null,
@@ -201,7 +267,7 @@ export function ReaderScreen() {
       )}
 
       <div className="reader-stage">
-      <div className="reader-viewport" ref={containerRef}>
+      <div className={`reader-viewport${zooming || (lastScale.current !== null && !!page && lastScale.current !== safeScale) ? ' reader-viewport-zooming' : ''}`} ref={containerRef} data-scale={page && loaded ? safeScale : undefined}>
         {page && loaded ? (
           <div className="reader-page-wrap">
             <PageView page={page} source={loaded.source} scale={safeScale} className="reader-page" />
