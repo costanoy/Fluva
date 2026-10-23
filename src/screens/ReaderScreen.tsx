@@ -139,17 +139,11 @@ export function ReaderScreen() {
     </div>
   );
 
-  const formatButton = (iconOnly: boolean) => (
+  const formatButton = (
     <div className="menu-anchor">
-      <button
-        className={`btn btn-secondary${iconOnly ? ' btn-icon reader-icon-btn' : ''}`}
-        aria-label={iconOnly ? t('home.changeFormat') : undefined}
-        aria-expanded={formatOpen}
-        disabled={!loaded || !!state.busy}
-        onClick={() => setFormatOpen((v) => !v)}
-      >
-        <Icon name="convert" size={iconOnly ? 20 : 18} />
-        {!iconOnly && t('home.changeFormat')}
+      <button className="btn btn-secondary reader-choice" aria-expanded={formatOpen} disabled={!loaded || !!state.busy} onClick={() => setFormatOpen((v) => !v)}>
+        <Icon name="convert" size={22} />
+        {t('home.changeFormat')}
       </button>
       {formatOpen && (
         <FormatMenu
@@ -183,14 +177,8 @@ export function ReaderScreen() {
           {pager}
           {zoomGroup}
         </div>
-        <div className="reader-bar-right">
-          <div className="reader-desktop-only">{formatButton(false)}</div>
-          <div className="reader-mobile-only">{formatButton(true)}</div>
-          <button className="btn btn-primary reader-desktop-only" onClick={actions.openReaderFileInEditor} disabled={!loaded || !!state.busy}>
-            <Icon name="pencil" size={18} />
-            {t('home.edit')}
-          </button>
-        </div>
+        {/* Keeps the pager and zoom in the middle of the bar. */}
+        <div className="reader-bar-right" />
       </div>
 
       {(loadError || state.error) && (
@@ -212,6 +200,7 @@ export function ReaderScreen() {
         </div>
       )}
 
+      <div className="reader-stage">
       <div className="reader-viewport" ref={containerRef}>
         {page && loaded ? (
           <div className="reader-page-wrap">
@@ -247,15 +236,22 @@ export function ReaderScreen() {
         )}
       </div>
 
+      {/* What to do with the file: big, at the bottom in the middle, where
+          the eye lands once it's open. */}
+      <div className="reader-choices">
+        {formatButton}
+        <button className="btn btn-primary reader-choice" onClick={actions.openReaderFileInEditor} disabled={!loaded || !!state.busy}>
+          <Icon name="pencil" size={22} />
+          {t('home.edit')}
+        </button>
+      </div>
+      </div>
+
       <div className="reader-bottom grain">
         <div className="reader-bottom-row">
           {pager}
           {zoomGroup}
         </div>
-        <button className="btn btn-primary reader-bottom-edit" onClick={actions.openReaderFileInEditor} disabled={!loaded || !!state.busy}>
-          <Icon name="pencil" size={18} />
-          {t('home.edit')}
-        </button>
       </div>
     </div>
   );
