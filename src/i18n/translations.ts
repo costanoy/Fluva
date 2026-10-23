@@ -40,7 +40,7 @@ const pt = {
   // ---- beta / "test the app" screen ----
   'beta.title': 'Teste o nosso aplicativo!',
   'beta.body':
-    'Tenha o Fluva no seu próprio celular se inscrevendo para uma versão de testes. É só mandar um e-mail para {email} informando que deseja participar da versão de apps que eu liberarei o acesso na hora.',
+    'Tenha o Fluva no seu próprio celular se inscrevendo para uma versão de testes. É só falar comigo pelo meu portfólio, {link}, dizendo que deseja participar da versão de apps, que eu libero o acesso na hora.',
   'beta.back': 'Voltar',
 
   // ---- top bar ----
@@ -566,7 +566,7 @@ const en: Record<TranslationKey, string> = {
   // ---- beta / "test the app" screen ----
   'beta.title': 'Try our app!',
   'beta.body':
-    'Get Fluva on your own phone by signing up for an early test version. Just send an email to {email} saying you want in, and I\'ll open access to the app version right away.',
+    'Get Fluva on your own phone by signing up for an early test version. Just get in touch through my portfolio, {link}, saying you want in, and I\'ll open access to the app version right away.',
   'beta.back': 'Back',
 
   // ---- top bar ----

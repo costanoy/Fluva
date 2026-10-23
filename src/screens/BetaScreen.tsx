@@ -1,4 +1,5 @@
 import { Button } from '../components/Button';
+import { ExternalLink, PORTFOLIO_URL } from '../components/ExternalLink';
 import { Footer } from '../components/Footer';
 import { Icon } from '../components/Icon';
 import { RisoHeading } from '../components/Logo';
@@ -7,18 +8,17 @@ import { useApp } from '../state/AppContext';
 import { t } from '../i18n/translations';
 import '../styles/empty-state.css';
 
-const EMAIL = 'vinicostamaga@outlook.com';
 // A sentinel unlikely to appear in real copy. Splitting the translated
-// string on it recovers whatever comes before/after the email so it can be
+// string on it recovers whatever comes before/after the link so it can be
 // bolded on its own, regardless of where each language's sentence puts it.
-const EMAIL_SENTINEL = '@@EMAIL@@';
+const LINK_SENTINEL = '@@LINK@@';
 
-/** Invites visitors to email in for early access to a mobile app version — no gate, just a signup. */
+/** Invites visitors to get in touch (through the author's portfolio) for early access to a mobile app version — no gate, just a signup. */
 export function BetaScreen() {
   const { actions } = useApp();
   // Recomputed every render (not hoisted to module scope) so a language
   // switch is picked up immediately, same as every other `t()` call here.
-  const [bodyBefore, bodyAfter] = t('beta.body', { email: EMAIL_SENTINEL }).split(EMAIL_SENTINEL);
+  const [bodyBefore, bodyAfter] = t('beta.body', { link: LINK_SENTINEL }).split(LINK_SENTINEL);
 
   return (
     <div className="home grain">
@@ -32,9 +32,9 @@ export function BetaScreen() {
         </RisoHeading>
         <p>
           {bodyBefore}
-          <a href={`mailto:${EMAIL}`}>
-            <strong>{EMAIL}</strong>
-          </a>
+          <ExternalLink href={PORTFOLIO_URL}>
+            <strong>{PORTFOLIO_URL.replace(/^https:\/\//, '')}</strong>
+          </ExternalLink>
           {bodyAfter}
         </p>
         <Button variant="primary" style={{ alignSelf: 'flex-start' }} onClick={() => actions.setScreen('empty')}>
