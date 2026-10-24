@@ -18,13 +18,23 @@ export interface XrefInfo {
 
 const latin1 = (bytes: Uint8Array) => new TextDecoder('latin1').decode(bytes);
 
+/** The file's cross-reference can't be found where it says: an update
+ * pointing back at it would leave readers lost. Write the file anew instead. */
+export class BrokenXrefError extends Error {
+  constructor() {
+    super('broken cross-reference');
+    this.name = 'BrokenXrefError';
+  }
+}
+
 export function lastXref(bytes: Uint8Array): XrefInfo {
   const tail = latin1(bytes.subarray(Math.max(0, bytes.length - 4096)));
   const m = /startxref\s+(\d+)\s+%%EOF\s*$/.exec(tail) ?? [...tail.matchAll(/startxref\s+(\d+)/g)].pop();
-  if (!m) throw new Error('startxref not found');
+  if (!m) throw new BrokenXrefError();
   const offset = Number(m[1]);
   // What's there: "xref" and a table, or "N G obj" and the stream's dictionary.
   const head = latin1(bytes.subarray(offset, offset + 64 * 1024));
+  if (!/^\s*(xref|\d+\s+\d+\s+obj)/.test(head)) throw new BrokenXrefError();
   const isStream = !/^\s*xref/.test(head);
   const dict = isStream ? head.slice(0, head.indexOf('stream')) : head.slice(head.indexOf('trailer'));
   const size = Number(/\/Size\s+(\d+)/.exec(dict)?.[1] ?? 0);

@@ -1147,6 +1147,14 @@
     R.ok('three cross-reference tables, each placing its objects right', info.xref.ok && info.xref.kinds.join() === 'table,table,table', JSON.stringify(info.xref));
   };
 
+  parts.signBroken = async (R) => {
+    // Its last cross-reference can't be found where the file says.
+    R.ok('opens a PDF with a damaged ending', await open(['texto-quebrado.pdf']));
+    const signed = await signWith('cert-valido.p12');
+    const info = await window.__inspectPdf(signed.blob);
+    R.ok('signs it anyway, written anew: a sound file, a valid signature', signed.done && allValid(info) && info.signatures[0].coversToEnd && info.xref.ok, JSON.stringify({ error: signed.error, xref: info.xref, signatures: info.signatures.length }));
+  };
+
   parts.signStamp = async (R) => {
     R.ok('opens a 3-page PDF', await open(['texto.pdf']));
     const signed = await signWith('cert-valido.p12', { page: 'first', corner: 'top-left' });

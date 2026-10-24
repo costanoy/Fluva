@@ -14,7 +14,7 @@ import sharp from 'sharp';
 const { degrees, PDFDocument, PDFString, rgb, StandardFonts } = pdfLib;
 
 /** Bump when a fixture changes, so the next run makes them again. */
-const VERSION = '6';
+const VERSION = '7';
 
 /** The test certificates' password. */
 export const CERT_PASSWORD = 'teste123';
@@ -327,7 +327,11 @@ export async function makeFixtures(dir) {
 
   save('texto.pdf', await textPdf());
   // The same, with a classic cross-reference table instead of a stream.
-  save('texto-classico.pdf', await (await PDFDocument.load(await textPdf())).save({ useObjectStreams: false }));
+  const classic = await (await PDFDocument.load(await textPdf())).save({ useObjectStreams: false });
+  save('texto-classico.pdf', classic);
+  // …and with its last "startxref" pointing nowhere: readers recover, but
+  // nothing can be added to it as it is.
+  save('texto-quebrado.pdf', Buffer.from(Buffer.from(classic).toString('latin1').replace(/startxref\s+\d+\s+%%EOF\s*$/, 'startxref\n17\n%%EOF\n'), 'latin1'));
   save('imagem-pesada.pdf', await imagePdf());
   save('rotacionado.pdf', await rotatedPdf());
   save('formulario.pdf', await formPdf());

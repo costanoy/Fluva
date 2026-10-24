@@ -1545,7 +1545,11 @@ export function useFluvaStore() {
           const original = untouchedPdfBytes(st.doc);
           const pdfBytes = original && !(await pdfSignatureInfo(original)).encrypted ? original : await buildPdf(st.doc);
           const pfxBytes = new Uint8Array(await pfxFile.arrayBuffer());
-          const result = await signPdf(pdfBytes, pfxBytes, password, stamp);
+          const result = await signPdf(pdfBytes, pfxBytes, password, stamp).catch(async (err) => {
+            // A file whose structure can't take an addition is written anew first.
+            if (err instanceof Error && err.name === 'BrokenXrefError' && pdfBytes === original) return signPdf(await buildPdf(st.doc), pfxBytes, password, stamp);
+            throw err;
+          });
           const fileName = `${baseNameFor(st.doc)}${t('file.signed')}.pdf`;
           // Closing Android's save sheet still leaves the signed file one
           // tap away ("Baixar de novo" on the done screen).
