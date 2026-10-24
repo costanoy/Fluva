@@ -127,9 +127,11 @@ export function CompressPanel() {
           <div className="panel-note">
             {outcome.strategy === 'image'
               ? t('compress.imageNote', { formats })
-              : outcome.strategy === 'raster'
-                ? t('compress.rasterNote')
-                : t('compress.rebuildNote')}
+              : outcome.strategy === 'images'
+                ? t('compress.imagesNote')
+                : outcome.strategy === 'original'
+                  ? t('compress.originalNote')
+                  : t('compress.rebuildNote')}
           </div>
           <Button variant="primary" block onClick={actions.downloadCompressed}>
             <Download size={16} strokeWidth={2.75} />

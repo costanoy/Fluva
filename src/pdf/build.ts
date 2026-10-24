@@ -75,6 +75,9 @@ export interface BuildOptions {
   omitPhotos?: (page: WorkPage) => boolean;
   /** …and the photos it does carry go in losslessly (and fast), not as JPEG. */
   losslessPhotos?: boolean;
+  /** One last pass over the finished document before it's written (see
+   * compression in ops.ts). */
+  beforeSave?: (out: PDFDocument) => Promise<void>;
 }
 
 /**
@@ -326,6 +329,7 @@ export async function buildPdf(doc: DocumentState, report?: BuildReport, options
   // reachable from the document any more, all of it would still be written.
   await out.flush();
   dropUnreachable(out);
+  await options.beforeSave?.(out);
   return out.save();
 }
 

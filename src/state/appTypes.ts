@@ -91,8 +91,9 @@ export interface CompressOutcome {
   originalSize: number;
   compressedSize: number;
   reductionPct: number;
-  /** 'image': a photo document compressed into images again, not a PDF. */
-  strategy: 'raster' | 'rebuild' | 'image';
+  /** 'image': a photo document compressed into images again, not a PDF;
+   * the rest: see `CompressStrategy` in pdf/ops.ts. */
+  strategy: 'images' | 'rebuild' | 'original' | 'image';
   bytes: Uint8Array;
   /** The compressed images, for a photo document. */
   images?: Array<{ name: string; bytes: Uint8Array; mime: string }>;

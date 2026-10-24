@@ -14,7 +14,7 @@ import sharp from 'sharp';
 const { degrees, PDFDocument, PDFString, rgb, StandardFonts } = pdfLib;
 
 /** Bump when a fixture changes, so the next run makes them again. */
-const VERSION = '4';
+const VERSION = '6';
 
 /** The test certificates' password. */
 export const CERT_PASSWORD = 'teste123';
@@ -164,6 +164,34 @@ async function imagePdf() {
   return doc.save();
 }
 
+/** A photo cut out round (see-through around it), shown small over a colored page. */
+async function cutoutPdf() {
+  const W = 1200;
+  const H = 800;
+  const raw = Buffer.alloc(W * H * 4);
+  let seed = 3;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      const inside = ((x - W / 2) / (W / 2)) ** 2 + ((y - H / 2) / (H / 2)) ** 2 <= 1;
+      raw[i] = 200 + rnd() * 55;
+      raw[i + 1] = 40 + rnd() * 60;
+      raw[i + 2] = 90 + rnd() * 60;
+      raw[i + 3] = inside ? 255 : 0;
+    }
+  }
+  const png = await sharp(raw, { raw: { width: W, height: H, channels: 4 } }).png().toBuffer();
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const cutout = await doc.embedPng(png);
+  const p = doc.addPage([595.28, 841.89]);
+  p.drawRectangle({ x: 0, y: 0, width: 595.28, height: 841.89, color: rgb(1, 0.9, 0.4) });
+  p.drawImage(cutout, { x: 60, y: 640, width: 180, height: 120 });
+  p.drawText('Foto recortada sobre fundo amarelo', { x: 60, y: 600, size: 16, font });
+  return doc.save();
+}
+
 /** Landscape pages stored as portrait + /Rotate, and one with its MediaBox off the origin. */
 async function rotatedPdf() {
   const doc = await PDFDocument.create();
@@ -292,6 +320,7 @@ export async function makeFixtures(dir) {
   save('foto.gif', await foto.clone().gif().toBuffer());
   save('foto.bmp', await bmp(foto));
   save('logo-transparente.png', await logo().png().toBuffer());
+  save('recorte.pdf', await cutoutPdf());
   save('logo-lossless.webp', await logo().webp({ lossless: true }).toBuffer());
   save('foto-12mp.jpg', await bigPhoto());
   save('largo-16400.png', await sharp({ create: { width: 16400, height: 300, channels: 3, background: { r: 120, g: 170, b: 220 } } }).png().toBuffer());

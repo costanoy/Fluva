@@ -1,7 +1,7 @@
-import { PDFDocument } from 'pdf-lib';
-import { isImagePage, watermarkOn, type DocumentState, type WorkPage } from './model';
+import { isImagePage, untouchedPdfBytes, watermarkOn, type DocumentState, type WorkPage } from './model';
 import { buildPdf } from './build';
-import { canEncodeWebp, canvasToBlob, imageExportScale, rasterizePages } from './render';
+import { canEncodeWebp, canvasToBlob, imageExportScale } from './render';
+import { deflatePlainStreams, recompressImages, type ImageSettings } from './compressImages';
 import { rasterizeDocument } from './rasterize';
 import { carriesMetadata } from './imagePrep';
 import { t } from '../i18n/translations';
@@ -92,13 +92,20 @@ export async function splitEveryPage(doc: DocumentState, baseName: string): Prom
 
 export type CompressLevel = 'low' | 'medium' | 'high';
 
-const COMPRESS_SETTINGS: Record<CompressLevel, { dpi: number; quality: number }> = {
-  low: { dpi: 150, quality: 0.82 },
-  medium: { dpi: 110, quality: 0.65 },
-  high: { dpi: 80, quality: 0.5 },
+/** How sharp the pictures inside a PDF stay, at the size each is shown. */
+const COMPRESS_SETTINGS: Record<CompressLevel, ImageSettings> = {
+  low: { dpi: 200, quality: 0.82 },
+  medium: { dpi: 150, quality: 0.7 },
+  high: { dpi: 100, quality: 0.55 },
 };
 
-export type CompressStrategy = 'raster' | 'rebuild';
+/**
+ * 'images': pictures were re-encoded; 'rebuild': none could gain, the
+ * document was just written again, leaner; 'original': nothing came out
+ * smaller than the file as opened, which is handed back as it was.
+ * Text stays selectable in all three.
+ */
+export type CompressStrategy = 'images' | 'rebuild' | 'original';
 
 export interface CompressResult {
   bytes: Uint8Array;
@@ -106,11 +113,6 @@ export interface CompressResult {
   compressedSize: number;
   /** 0 when nothing could be gained. */
   reductionPct: number;
-  /**
-   * Which output won. 'raster' means pages were re-encoded as images;
-   * 'rebuild' means rasterising was worse, so the clean rebuild was kept and the
-   * text in the file stays selectable.
-   */
   strategy: CompressStrategy;
 }
 
@@ -199,49 +201,38 @@ function hasTransparency(canvas: HTMLCanvasElement): boolean {
 }
 
 /**
- * Real compression.
+ * Real compression that keeps a document a document: the pictures inside are
+ * re-encoded, and scaled down to what the page shows them at (see
+ * compressImages.ts); text, drawings, fonts, links and forms stay as they
+ * are — the text selectable and searchable. Streams written uncompressed are
+ * deflated, and the file is saved with its objects packed together.
  *
- * Two strategies are produced and the smaller one wins:
- *
- * - **rebuild** — the document re-saved cleanly. Text stays selectable.
- * - **raster** — every page re-encoded as a JPEG at reduced resolution.
- *
- * Rasterising is a huge win on scanned and image-heavy files, but on a vector or
- * text-only PDF it can multiply the size many times over, so it is only kept when
- * it genuinely produces a smaller file. Nothing is ever returned that is larger
- * than what the user already had.
+ * Measured against the files as opened, and never bigger than them: a PDF
+ * opened and left as it was that can't be made smaller comes back as it was.
  */
 export async function compressDocument(
   doc: DocumentState,
   level: CompressLevel,
   onProgress?: (done: number, total: number) => void,
 ): Promise<CompressResult> {
-  const settings = COMPRESS_SETTINGS[level];
-  const baked = await buildPdf(doc);
-  const out = await PDFDocument.create();
-  // Each page is encoded and embedded as soon as it's drawn, so only one canvas is ever alive.
-  await rasterizePages(
-    baked,
-    () => settings.dpi / 72,
-    async (canvas, i, total, { width, height }) => {
-      const blob = await canvasToBlob(canvas, 'image/jpeg', settings.quality);
-      const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
-      const outPage = out.addPage([width, height]);
-      outPage.drawImage(img, { x: 0, y: 0, width, height });
-      onProgress?.(i + 1, total);
+  let pictures = 0;
+  const bytes = await buildPdf(doc, undefined, {
+    beforeSave: async (out) => {
+      pictures = await recompressImages(out, COMPRESS_SETTINGS[level], onProgress);
+      deflatePlainStreams(out);
     },
-  );
-  if (out.getPageCount() === 0) out.addPage();
-  const rasterBytes = await out.save();
-
-  const rasterWins = rasterBytes.byteLength < baked.byteLength;
-  const bytes = rasterWins ? rasterBytes : baked;
-
+  });
+  const sources = new Set(doc.pages.map((p) => p.sourceId).filter((id): id is string => !!id));
+  const before = [...sources].reduce((n, id) => n + ((doc.sources[id]?.original ?? doc.sources[id])?.bytes.byteLength ?? 0), 0) || bytes.byteLength;
+  const original = untouchedPdfBytes(doc);
+  if (original && bytes.byteLength >= original.byteLength) {
+    return { bytes: original, originalSize: original.byteLength, compressedSize: original.byteLength, reductionPct: 0, strategy: 'original' };
+  }
   return {
     bytes,
-    originalSize: baked.byteLength,
+    originalSize: before,
     compressedSize: bytes.byteLength,
-    reductionPct: Math.max(0, Math.round((1 - bytes.byteLength / baked.byteLength) * 100)),
-    strategy: rasterWins ? 'raster' : 'rebuild',
+    reductionPct: Math.max(0, Math.round((1 - bytes.byteLength / before) * 100)),
+    strategy: pictures ? 'images' : 'rebuild',
   };
 }

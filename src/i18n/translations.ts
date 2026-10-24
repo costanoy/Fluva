@@ -174,14 +174,15 @@ const pt = {
   'compress.levelMedium': 'Equilibrada',
   'compress.levelHigh': 'Máxima',
   'compress.note':
-    'Documentos digitalizados ou com muitas imagens são recodificados como imagem, o que reduz bastante o tamanho. Arquivos de texto já otimizados são mantidos como estão, sem perder qualidade.',
+    'As fotos e imagens do PDF são recomprimidas e, quando têm mais pixels do que a página mostra, reduzidas. O texto, os desenhos, os links e os formulários ficam como estão: o texto continua selecionável e pesquisável.',
   'compress.runNow': 'Comprimir agora',
   'compress.before': 'Antes',
   'compress.after': 'Depois',
   'compress.reduced': '−{pct}% de tamanho',
   'compress.alreadyMin': 'Este arquivo já está no menor tamanho possível.',
-  'compress.rasterNote': 'As páginas viraram imagem, então o texto não fica mais selecionável.',
-  'compress.rebuildNote': 'Recodificar como imagem deixaria o arquivo maior, então o documento foi mantido com o texto selecionável.',
+  'compress.imagesNote': 'As imagens foram recomprimidas; o texto continua selecionável e pesquisável.',
+  'compress.rebuildNote': 'Não havia imagens para recomprimir: o PDF foi salvo de novo de forma mais enxuta, com o texto selecionável.',
+  'compress.originalNote': 'O arquivo já estava otimizado, então ele foi mantido exatamente como estava.',
   'compress.downloadPdf': 'Baixar PDF',
 
   // ---- watermark panel ----
@@ -726,14 +727,15 @@ const en: Record<TranslationKey, string> = {
   'compress.levelMedium': 'Balanced',
   'compress.levelHigh': 'Maximum',
   'compress.note':
-    "Scanned documents or image-heavy files get re-encoded as images, which cuts the size a lot. Files whose text is already optimized are kept as-is, with no quality loss.",
+    "The photos and pictures in the PDF are recompressed and, when they hold more pixels than the page shows, scaled down. Text, drawings, links and forms stay as they are: the text stays selectable and searchable.",
   'compress.runNow': 'Compress now',
   'compress.before': 'Before',
   'compress.after': 'After',
   'compress.reduced': '−{pct}% in size',
   'compress.alreadyMin': 'This file is already at its smallest possible size.',
-  'compress.rasterNote': 'The pages became images, so the text is no longer selectable.',
-  'compress.rebuildNote': 'Re-encoding as images would have made the file bigger, so the document was kept with selectable text.',
+  'compress.imagesNote': 'The pictures were recompressed; the text is still selectable and searchable.',
+  'compress.rebuildNote': 'There were no pictures to recompress: the PDF was saved again, leaner, with its text selectable.',
+  'compress.originalNote': 'The file was already optimized, so it was kept exactly as it was.',
   'compress.downloadPdf': 'Download PDF',
 
   // ---- watermark panel ----

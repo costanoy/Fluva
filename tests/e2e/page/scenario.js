@@ -1215,6 +1215,82 @@
     R.ok('an expired certificate is refused, saying when it expired', !result.done && /venceu em (31\/12\/2020|01\/01\/2021)/.test(result.error), result.error);
   };
 
+  /** Comprimir → a level → "Comprimir agora" → the result panel and the file. */
+  const compressPdf = async (level) => {
+    btn(/^Comprimir/).click();
+    await wait(400);
+    if (level) [...document.querySelectorAll('.right-panel .segmented-btn')].find((b) => text(b) === level)?.click();
+    await wait(200);
+    panelBtn('Comprimir agora').click();
+    const result = await until(() => document.querySelector('.compress-result'), 120000);
+    const before = window.__dl.length;
+    [...document.querySelectorAll('.right-panel button')].find((b) => /Baixar/.test(text(b))).click();
+    const got = await until(() => window.__dl[before], 20000);
+    return { panel: text(result), blob: got?.blob ?? null, name: got?.name };
+  };
+  /** Opens a PDF the page made in the editor, and counts its text runs. */
+  const textRunsOf = async (blob, name) => {
+    await goHome();
+    await dropBlob(blob, name);
+    await until(() => document.querySelector('.reader-page canvas')?.width > 1, 20000);
+    await wait(600);
+    document.querySelectorAll('.reader-choices .reader-choice')[1].click();
+    await until(() => document.querySelector('.toolbar'), 20000);
+    return (await until(() => document.querySelectorAll('.text-run').length, 10000)) || 0;
+  };
+
+  parts.compressPdf = async (R) => {
+    const original = (await window.__file('imagem-pesada.pdf')).size;
+    R.ok('opens a PDF with two big pictures and text', await open(['imagem-pesada.pdf']));
+    const runsBefore = (await until(() => document.querySelectorAll('.text-run').length, 10000)) || 0;
+    const t0 = performance.now();
+    const out = await compressPdf('Equilibrada');
+    R.info.compressMs = Math.round(performance.now() - t0);
+    await window.__sink(out.blob, 'comprimido.pdf');
+    R.ok('much smaller', out.blob && out.blob.size < original * 0.3, `${original} -> ${out.blob?.size} bytes in ${R.info.compressMs} ms`);
+    R.ok('says the pictures were recompressed and the text kept', /imagens foram recomprimidas/.test(out.panel) && /selecionável/.test(out.panel), out.panel.replace(/\s+/g, ' ').slice(0, 160));
+    const info = await window.__inspectPdf(out.blob);
+    // Shown 495 × 371 pt: at 150 dpi, about 1031 × 773 pixels.
+    R.ok('pictures scaled to what the page shows (150 dpi) and stored as JPEG', info.images.length === 2 && info.images.every((im) => im.width <= 1100 && im.width >= 950 && im.filter.includes('DCTDecode')), JSON.stringify(info.images));
+    R.ok('a valid file', info.xref?.ok && info.pages === 2, JSON.stringify(info.xref));
+    const runsAfter = await textRunsOf(out.blob, 'comprimido.pdf');
+    R.ok('its text is still text (selectable, editable)', runsBefore > 0 && runsAfter === runsBefore, `${runsBefore} text runs before, ${runsAfter} after`);
+    await wait(1500);
+    await window.__shot('comprimido');
+  };
+
+  parts.compressMask = async (R) => {
+    // A photo with see-through parts: its mask shrinks with it, kept exact.
+    R.ok('opens a PDF with a cut-out photo', await open(['recorte.pdf']));
+    const out = await compressPdf('Equilibrada');
+    const info = await window.__inspectPdf(out.blob);
+    const [picture, mask] = [info.images.find((im) => im.filter.includes('DCT')), info.images.find((im) => im.filter.includes('Flate'))];
+    // Shown 180 × 120 pt: at 150 dpi, 375 × 250 pixels.
+    R.ok('the photo and its mask, both at the size shown', picture?.width === 375 && mask?.width === 375 && mask.height === 250, JSON.stringify(info.images));
+    await goHome();
+    await dropBlob(out.blob, 'recorte-comprimido.pdf');
+    await until(() => document.querySelector('.reader-page canvas')?.width > 1, 20000);
+    await wait(1000);
+    // Around the photo, the yellow page shows through; inside, its colors.
+    const c = document.querySelector('.reader-page canvas');
+    const at = (fx, fy) => [...c.getContext('2d').getImageData(Math.floor(fx * c.width), Math.floor(fy * c.height), 1, 1).data];
+    const corner = at(62 / 595.28, (841.89 - 758) / 841.89);
+    const middle = at(150 / 595.28, (841.89 - 700) / 841.89);
+    R.ok('still see-through around it, its colors inside', corner[0] > 230 && corner[1] > 200 && corner[2] < 140 && middle[0] > 180 && middle[1] < 130, `corner ${corner}, middle ${middle}`);
+    await window.__shot('recorte-comprimido');
+  };
+
+  parts.compressText = async (R) => {
+    // Nothing to gain: never bigger than what was opened.
+    const original = (await window.__file('texto.pdf')).size;
+    R.ok('opens a text-only PDF', await open(['texto.pdf']));
+    const out = await compressPdf('Leve');
+    R.ok('never bigger than the original', out.blob && out.blob.size <= original, `${original} -> ${out.blob?.size}`);
+    R.ok('says so plainly', /menor tamanho possível|−\d+%/.test(out.panel), out.panel.replace(/\s+/g, ' ').slice(0, 160));
+    const runs = await textRunsOf(out.blob, 'texto-comprimido.pdf');
+    R.ok('text kept', runs > 0, `${runs} text runs`);
+  };
+
   parts.wide = async (R) => {
     R.ok('opens a 16400 px wide image', await open(['largo-16400.png']));
     const before = window.__dl.length;
