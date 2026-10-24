@@ -1032,6 +1032,189 @@
     R.ok('a PDF protected only by its author opens without asking', !!opened && !document.querySelector('.password-dialog'));
   };
 
+  /** Back to the home screen, the way the Back button goes. */
+  const goHome = async () => {
+    window.confirm = () => true;
+    for (let i = 0; i < 6 && !document.querySelector('.dropzone'); i++) {
+      history.back();
+      await wait(700);
+    }
+    return !!document.querySelector('.dropzone');
+  };
+  /** A file the page made (a download), opened again as if picked. */
+  const dropBlob = async (blob, name) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([blob], name, { type: blob.type || 'application/pdf' }));
+    document.querySelector('.dropzone').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+  };
+  const choose = (select, value) => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  /** Signs the open document through Exportar → Assinar e baixar. */
+  const signWith = async (certName, { stamp = true, corner = null, page = null } = {}) => {
+    const { certPassword } = await window.__qa('secrets');
+    btn(/^Exportar/).click();
+    await wait(400);
+    [...document.querySelectorAll('[role=menuitem]')].find((b) => /Assinar/.test(text(b))).click();
+    await until(() => document.querySelector('.sign-dialog'), 5000);
+    await wait(600);
+    window.__nextFiles = [await window.__file(certName)];
+    document.querySelector('.sign-dialog .cert-empty').click();
+    await wait(200);
+    typeInto(document.querySelector('#sign-pass'), certPassword);
+    if (!stamp) document.querySelector('.sign-check input').click();
+    await wait(100);
+    const selects = [...document.querySelectorAll('.sign-select select')];
+    if (page) choose(selects[0], page);
+    if (corner) choose(selects[selects.length - 1], corner);
+    await wait(100);
+    const note = text(document.querySelector('.sign-existing'));
+    const before = window.__dl.length;
+    [...document.querySelectorAll('.sign-dialog button')].find((b) => /Assinar e baixar/.test(text(b))).click();
+    const got = await until(() => window.__dl[before] || document.querySelector('.sign-dialog .alert'), 60000);
+    const error = text(document.querySelector('.sign-dialog .alert'));
+    const done = await until(() => /PDF assinado/.test(text(document.querySelector('.sign-dialog'))), 3000);
+    const doneText = text(document.querySelector('.sign-dialog'));
+    if (done) [...document.querySelectorAll('.sign-dialog button')].find((b) => text(b) === 'Concluir')?.click();
+    else [...document.querySelectorAll('.sign-dialog button')].find((b) => text(b) === 'Cancelar')?.click();
+    await wait(300);
+    return { blob: got?.blob ?? null, note, done: !!done, doneText, error };
+  };
+  /** Pixels close to the stamp's green, inside a box of the page shown in
+   * the reader — given as fractions of the page, from its top-left. */
+  const greenIn = (fx0, fy0, fx1, fy1) => {
+    const c = document.querySelector('.reader-page canvas');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let y = Math.floor(fy0 * c.height); y < fy1 * c.height; y++) {
+      for (let x = Math.floor(fx0 * c.width); x < fx1 * c.width; x++) {
+        const i = (y * c.width + x) * 4;
+        if (Math.abs(d[i] - 29) < 30 && Math.abs(d[i + 1] - 158) < 30 && Math.abs(d[i + 2] - 117) < 30) n++;
+      }
+    }
+    return n;
+  };
+  const allValid = (info) => info.signatures.length > 0 && info.signatures.every((sig) => sig.digestOk && sig.signatureOk);
+
+  parts.sign = async (R) => {
+    R.ok('opens a 3-page PDF', await open(['texto.pdf']));
+    const first = await signWith('cert-valido.p12');
+    R.ok('signs it', first.done && !!first.blob, first.error || first.doneText.slice(0, 80));
+    await window.__sink(first.blob, 'assinado-1.pdf');
+    let info = await window.__inspectPdf(first.blob);
+    R.ok('the signature checks out (hash and RSA, over the whole file)', allValid(info) && info.signatures.length === 1 && info.signatures[0].coversToEnd && info.signatures[0].signer === 'FULANO DE TAL:12345678900', JSON.stringify(info.signatures));
+    R.ok('added as an update: the original bytes are still all there', info.revisions === 2, `${info.revisions} revisions`);
+    const stamp = info.widgets.find((w) => w.appearance);
+    R.ok('a stamp on the last page, bottom right', !!stamp && stamp.page === 3 && stamp.rect[0] > 300 && stamp.rect[1] < 100, JSON.stringify(info.widgets));
+
+    // Signed again by someone else: the first signature stays valid.
+    R.ok('back home', await goHome());
+    await dropBlob(first.blob, 'assinado-1.pdf');
+    await until(() => document.querySelector('.reader-page canvas')?.width > 1, 15000);
+    await wait(600);
+    document.querySelectorAll('.reader-choices .reader-choice')[1].click();
+    await until(() => document.querySelector('.toolbar'), 20000);
+    await wait(1200);
+    const second = await signWith('cert-segundo.p12');
+    R.ok('the dialog says the signature already there stays valid', /já tem 1 assinatura/.test(second.note) && /continua valendo/.test(second.note), second.note);
+    R.ok('signs it again', second.done && !!second.blob, second.error);
+    await window.__sink(second.blob, 'assinado-2.pdf');
+    info = await window.__inspectPdf(second.blob);
+    const [sigA, sigB] = info.signatures;
+    R.ok('both signatures check out', info.signatures.length === 2 && allValid(info), JSON.stringify(info.signatures.map((x) => ({ signer: x.signer, digestOk: x.digestOk, signatureOk: x.signatureOk, coversToEnd: x.coversToEnd }))));
+    R.ok('the first covers its own version, the second the whole file', sigA && !sigA.coversToEnd && sigB?.coversToEnd && sigB.signer === 'CICLANA DA SILVA:98765432100', JSON.stringify(info.signatures.map((x) => x.byteRange)));
+    R.ok("every cross-reference section places each object where it is", info.xref.ok && info.xref.sections === 3, JSON.stringify(info.xref));
+    const stamps = info.widgets.filter((w) => w.appearance && w.page === 3);
+    const overlap = stamps.length === 2 && stamps[0].rect[0] < stamps[1].rect[2] && stamps[0].rect[2] > stamps[1].rect[0] && stamps[0].rect[1] < stamps[1].rect[3] && stamps[0].rect[3] > stamps[1].rect[1];
+    R.ok("the second stamp doesn't cover the first", stamps.length === 2 && !overlap, JSON.stringify(stamps.map((w) => w.rect.map(Math.round))));
+  };
+
+  parts.signClassic = async (R) => {
+    // A PDF with a classic cross-reference table, signed twice.
+    R.ok('opens a PDF with a classic cross-reference table', await open(['texto-classico.pdf']));
+    const first = await signWith('cert-valido.p12');
+    await goHome();
+    await dropBlob(first.blob, 'classico-assinado.pdf');
+    await until(() => document.querySelector('.reader-page canvas')?.width > 1, 15000);
+    await wait(600);
+    document.querySelectorAll('.reader-choices .reader-choice')[1].click();
+    await until(() => document.querySelector('.toolbar'), 20000);
+    await wait(1200);
+    const second = await signWith('cert-segundo.p12');
+    const info = await window.__inspectPdf(second.blob);
+    R.ok('both signatures check out', info.signatures.length === 2 && allValid(info), JSON.stringify(info.signatures.map((x) => [x.signer, x.digestOk, x.signatureOk])));
+    R.ok('three cross-reference tables, each placing its objects right', info.xref.ok && info.xref.kinds.join() === 'table,table,table', JSON.stringify(info.xref));
+  };
+
+  parts.signStamp = async (R) => {
+    R.ok('opens a 3-page PDF', await open(['texto.pdf']));
+    const signed = await signWith('cert-valido.p12', { page: 'first', corner: 'top-left' });
+    R.ok('signs it, stamp on the first page, top left', signed.done, signed.error);
+    const info = await window.__inspectPdf(signed.blob);
+    const stamp = info.widgets.find((w) => w.appearance);
+    R.ok('the stamp is where it was asked to be', !!stamp && stamp.page === 1 && stamp.rect[0] < 100 && stamp.rect[3] > 700, JSON.stringify(stamp));
+    // Shown when the signed file is opened.
+    await goHome();
+    await dropBlob(signed.blob, 'assinado.pdf');
+    await until(() => document.querySelector('.reader-page canvas')?.width > 1, 15000);
+    await wait(1200);
+    const green = greenIn(0, 0, 0.5, 0.2);
+    await window.__shot('carimbo');
+    R.ok('…and drawn there when the file is opened', green > 300, `${green} green pixels`);
+    // No stamp: nothing drawn, still signed.
+    await goHome();
+    R.ok('opens it again', await open(['texto.pdf']));
+    const plain = await signWith('cert-valido.p12', { stamp: false });
+    const plainInfo = await window.__inspectPdf(plain.blob);
+    R.ok('without the stamp: signed, nothing on the page', plain.done && allValid(plainInfo) && plainInfo.widgets.length === 1 && !plainInfo.widgets[0].appearance && plainInfo.widgets[0].rect.every((v) => v === 0), JSON.stringify(plainInfo.widgets));
+  };
+
+  parts.signRotated = async (R) => {
+    // Page 1 is stored portrait with /Rotate 90: shown landscape.
+    R.ok('opens a PDF with a turned page', await open(['rotacionado.pdf']));
+    const signed = await signWith('cert-valido.p12', { page: 'first' });
+    const info = await window.__inspectPdf(signed.blob);
+    const stamp = info.widgets.find((w) => w.appearance);
+    R.ok('signed, the stamp on the turned page', signed.done && allValid(info) && stamp?.page === 1 && stamp.rotation === 90, JSON.stringify(stamp));
+    await goHome();
+    await dropBlob(signed.blob, 'girado.pdf');
+    await until(() => document.querySelector('.reader-page canvas')?.width > 1, 15000);
+    await wait(1200);
+    const c = document.querySelector('.reader-page canvas');
+    const green = greenIn(0.55, 0.75, 1, 1);
+    await window.__shot('carimbo-girado');
+    R.ok('drawn at the bottom right as the page is seen', c.width > c.height && green > 300, `${c.width}×${c.height}, ${green} green pixels`);
+  };
+
+  parts.signEdited = async (R) => {
+    R.ok('opens a PDF', await open(['texto.pdf']));
+    const first = await signWith('cert-valido.p12');
+    await goHome();
+    await dropBlob(first.blob, 'assinado.pdf');
+    await until(() => document.querySelector('.reader-page canvas')?.width > 1, 15000);
+    await wait(600);
+    document.querySelectorAll('.reader-choices .reader-choice')[1].click();
+    await until(() => document.querySelector('.toolbar'), 20000);
+    await wait(1200);
+    // An edit: the signed file can't stay as it was.
+    btn(/^Adicionar texto/).click();
+    await wait(600);
+    document.querySelector('.canvas-area').click();
+    await wait(300);
+    const second = await signWith('cert-segundo.p12');
+    R.ok("the dialog warns the earlier signature won't hold", /deixam de valer/.test(second.note), second.note);
+    const info = await window.__inspectPdf(second.blob);
+    const last = info.signatures[info.signatures.length - 1];
+    R.ok('the new signature checks out', second.done && last?.digestOk && last.signatureOk && last.coversToEnd && last.signer === 'CICLANA DA SILVA:98765432100', JSON.stringify(info.signatures));
+  };
+
+  parts.signExpired = async (R) => {
+    R.ok('opens a PDF', await open(['texto.pdf']));
+    const result = await signWith('cert-vencido.p12');
+    R.ok('an expired certificate is refused, saying when it expired', !result.done && /venceu em (31\/12\/2020|01\/01\/2021)/.test(result.error), result.error);
+  };
+
   parts.wide = async (R) => {
     R.ok('opens a 16400 px wide image', await open(['largo-16400.png']));
     const before = window.__dl.length;

@@ -1,12 +1,20 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DialogClose, Modal } from './Dialog';
 import { Icon } from './Icon';
 import { useApp } from '../state/AppContext';
 import type { SignOutcome } from '../state/appTypes';
+import type { StampCorner } from '../pdf/sign';
 import { formatBytes } from '../pdf/loader';
-import { getLang, t } from '../i18n/translations';
+import { getLang, t, type TranslationKey } from '../i18n/translations';
 
 type Done = Extract<SignOutcome, { ok: true }>;
+
+const CORNERS: Array<{ key: StampCorner; label: TranslationKey }> = [
+  { key: 'bottom-right', label: 'sign.cornerBottomRight' },
+  { key: 'bottom-left', label: 'sign.cornerBottomLeft' },
+  { key: 'top-right', label: 'sign.cornerTopRight' },
+  { key: 'top-left', label: 'sign.cornerTopLeft' },
+];
 
 function formatDate(d: Date, opts: Intl.DateTimeFormatOptions): string {
   return new Intl.DateTimeFormat(getLang() === 'pt' ? 'pt-BR' : 'en-US', opts).format(d);
@@ -27,6 +35,27 @@ export function SignDialog() {
   const [done, setDone] = useState<Done | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  // Where the signature shows: a stamp, on the last page's bottom right
+  // unless chosen otherwise.
+  const [stampOn, setStampOn] = useState(true);
+  const [stampPage, setStampPage] = useState<'last' | 'first' | 'current'>('last');
+  const [corner, setCorner] = useState<StampCorner>('bottom-right');
+  /** The signatures the PDF already has, and whether they'll stay valid. */
+  const [existing, setExisting] = useState<{ count: number; kept: boolean } | null>(null);
+  const total = state.doc.pages.length;
+  const active = state.activePageIndex;
+
+  useEffect(() => {
+    let alive = true;
+    actions
+      .inspectSignatures()
+      .then((found) => alive && setExisting(found))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const close = () => {
     if (status === 'signing') return;
@@ -39,7 +68,8 @@ export function SignDialog() {
     if (!pfxFile || !password) return;
     setStatus('signing');
     setError(null);
-    const outcome = await actions.signAndDownload(pfxFile, password);
+    const page = stampPage === 'first' ? 0 : stampPage === 'current' ? active : total - 1;
+    const outcome = await actions.signAndDownload(pfxFile, password, stampOn ? { page, corner } : null);
     if (outcome.ok) {
       setStatus('idle');
       setPassword('');
@@ -236,6 +266,44 @@ export function SignDialog() {
             </div>
           )}
         </div>
+
+        <div className="field">
+          <label className="sign-check">
+            <input type="checkbox" checked={stampOn} onChange={(e) => setStampOn(e.target.checked)} disabled={status === 'signing'} />
+            {t('sign.stampLabel')}
+          </label>
+          {stampOn && (
+            <div className="sign-stamp-options">
+              {total > 1 && (
+                <label className="sign-select">
+                  <span>{t('sign.stampPage')}</span>
+                  <select value={stampPage} onChange={(e) => setStampPage(e.target.value as typeof stampPage)} disabled={status === 'signing'}>
+                    <option value="last">{t('sign.stampLast', { n: total })}</option>
+                    <option value="first">{t('sign.stampFirst')}</option>
+                    {active > 0 && active < total - 1 && <option value="current">{t('sign.stampCurrent', { n: active + 1 })}</option>}
+                  </select>
+                </label>
+              )}
+              <label className="sign-select">
+                <span>{t('sign.stampCorner')}</span>
+                <select value={corner} onChange={(e) => setCorner(e.target.value as StampCorner)} disabled={status === 'signing'}>
+                  {CORNERS.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {t(c.label)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+        </div>
+
+        {existing && existing.count > 0 && (
+          <div className={existing.kept ? 'sign-existing' : 'sign-existing sign-existing-lost'} role="note">
+            <Icon name={existing.kept ? 'check' : 'shield'} size={18} strokeWidth={2.4} />
+            <span>{existing.kept ? t(existing.count === 1 ? 'sign.existingKeptOne' : 'sign.existingKeptMany', { count: existing.count }) : t('sign.existingLost')}</span>
+          </div>
+        )}
 
         {errorAlert}
       </div>

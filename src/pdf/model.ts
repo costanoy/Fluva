@@ -289,6 +289,23 @@ export function watermarkOn(doc: DocumentState, page: WorkPage): boolean {
   return wm.enabled && (wm.allPages || (doc.pages[wm.singlePageIndex] ?? doc.pages[0])?.id === page.id);
 }
 
+/**
+ * The PDF a document still is, byte for byte: one opened and left as it was
+ * — its own pages, all of them, in order, none turned, cropped, drawn on or
+ * watermarked. Signing then adds to that very file instead of rewriting it,
+ * which keeps the signatures it already has valid. A PDF that needed a
+ * password isn't one (its pages are saved as images).
+ */
+export function untouchedPdfBytes(doc: DocumentState): Uint8Array | null {
+  const first = doc.pages[0];
+  const source = first?.sourceId ? doc.sources[first.sourceId] : undefined;
+  if (!source || source.kind !== 'pdf' || source.password !== undefined || doc.pages.length !== source.pageCount) return null;
+  const untouched = doc.pages.every(
+    (page, i) => page.sourceId === source.id && page.sourceIndex === i && page.rotation % 360 === 0 && !page.crop && !page.overlays.length && !page.image && !watermarkOn(doc, page),
+  );
+  return untouched ? source.bytes : null;
+}
+
 /** Whether a page is a photo the user opened (its pixels can be edited), not a PDF page. */
 export function isImagePage(doc: DocumentState, page: WorkPage | undefined): boolean {
   return !!page?.sourceId && doc.sources[page.sourceId]?.kind === 'image';

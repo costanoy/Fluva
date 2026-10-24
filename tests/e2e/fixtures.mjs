@@ -14,7 +14,7 @@ import sharp from 'sharp';
 const { degrees, PDFDocument, PDFString, rgb, StandardFonts } = pdfLib;
 
 /** Bump when a fixture changes, so the next run makes them again. */
-const VERSION = '3';
+const VERSION = '4';
 
 /** The test certificates' password. */
 export const CERT_PASSWORD = 'teste123';
@@ -297,6 +297,8 @@ export async function makeFixtures(dir) {
   save('largo-16400.png', await sharp({ create: { width: 16400, height: 300, channels: 3, background: { r: 120, g: 170, b: 220 } } }).png().toBuffer());
 
   save('texto.pdf', await textPdf());
+  // The same, with a classic cross-reference table instead of a stream.
+  save('texto-classico.pdf', await (await PDFDocument.load(await textPdf())).save({ useObjectStreams: false }));
   save('imagem-pesada.pdf', await imagePdf());
   save('rotacionado.pdf', await rotatedPdf());
   save('formulario.pdf', await formPdf());

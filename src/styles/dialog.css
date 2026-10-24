@@ -198,6 +198,78 @@
   font-weight: 700;
 }
 
+/* Assinatura: mostrar na página (carimbo) e onde. */
+.sign-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sign-check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--ink-green);
+  margin: 0;
+}
+
+.sign-stamp-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-left: 30px;
+}
+
+.sign-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--graphite-muted);
+  flex: 1 1 180px;
+}
+
+.sign-select select {
+  height: 44px;
+  border: 2px solid var(--graphite);
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: var(--graphite);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 0 10px;
+}
+
+/* As assinaturas que o PDF já tem: continuam valendo, ou não (editado). */
+.sign-existing {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 2px solid var(--ink-green);
+  background: var(--ink-green-tint);
+  color: var(--ink-green-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.sign-existing svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.sign-existing-lost {
+  border-color: var(--ink-pink-text);
+  background: var(--ink-pink-tint);
+  color: var(--ink-pink-text);
+}
+
 .field-help {
   font-size: 15px;
   color: var(--graphite-muted);

@@ -1,5 +1,8 @@
-import { PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString } from 'pdf-lib';
+import { FontNames } from '@pdf-lib/standard-fonts';
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString, StandardFontEmbedder, type PDFContext } from 'pdf-lib';
 import { getLang, t } from '../i18n/translations';
+import { displayRectToRaw, displayedSize, normalizeRotation } from './geometry';
+import { appendUpdate, lastXref } from './incremental';
 
 export class SignPdfError extends Error {
   constructor(
@@ -26,6 +29,15 @@ export interface SignResult {
   bytes: Uint8Array;
   signer: SignerInfo;
   signedAt: Date;
+}
+
+export type StampCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+
+/** Where the signature shows on the page: a stamp with who signed and when. */
+export interface StampPlacement {
+  /** 0-based. */
+  page: number;
+  corner: StampCorner;
 }
 
 function describeSigner(certificate: import('node-forge').pki.Certificate): SignerInfo {
@@ -96,76 +108,261 @@ function pdfDate(d: Date): string {
  * byte, is what keeps this fast even on a large file — latin1 maps each
  * byte to exactly one JS UTF-16 code unit, so the resulting string's own
  * (native, optimized) `indexOf` gives back a true byte offset directly. */
-function findAsciiOffset(bytes: Uint8Array, pattern: string): number {
-  const text = new TextDecoder('latin1').decode(bytes);
-  return text.indexOf(pattern);
+function findAsciiOffset(bytes: Uint8Array, pattern: string, from = 0): number {
+  const at = new TextDecoder('latin1').decode(bytes.subarray(from)).indexOf(pattern);
+  return at === -1 ? -1 : from + at;
+}
+
+/** A field name the document doesn't use yet: "Assinatura1", "Assinatura2"... */
+function freeFieldName(context: PDFContext, fields: PDFArray): string {
+  const used = new Set<string>();
+  const walk = (array: PDFArray) => {
+    for (const item of array.asArray()) {
+      const field = context.lookup(item);
+      if (!(field instanceof PDFDict)) continue;
+      const name = field.lookup(PDFName.of('T'));
+      if (name instanceof PDFString || name instanceof PDFHexString) used.add(name.decodeText());
+      const kids = field.lookup(PDFName.of('Kids'));
+      if (kids instanceof PDFArray) walk(kids);
+    }
+  };
+  walk(fields);
+  let n = 1;
+  while (used.has(`Assinatura${n}`)) n++;
+  return `Assinatura${n}`;
+}
+
+/** A document its author certified as final (DocMDP, no changes allowed):
+ * any signature added would break the certification. */
+function certifiedWithoutChanges(context: PDFContext, catalog: PDFDict): boolean {
+  const perms = catalog.lookup(PDFName.of('Perms'));
+  const docMdp = perms instanceof PDFDict ? perms.lookup(PDFName.of('DocMDP')) : undefined;
+  const refs = docMdp instanceof PDFDict ? docMdp.lookup(PDFName.of('Reference')) : undefined;
+  if (!(refs instanceof PDFArray)) return false;
+  return refs.asArray().some((item) => {
+    const ref = context.lookup(item);
+    if (!(ref instanceof PDFDict) || ref.lookup(PDFName.of('TransformMethod')) !== PDFName.of('DocMDP')) return false;
+    const params = ref.lookup(PDFName.of('TransformParams'));
+    const p = params instanceof PDFDict ? params.lookup(PDFName.of('P')) : undefined;
+    return p instanceof PDFNumber && p.asNumber() === 1;
+  });
+}
+
+/** How big the stamp is, in points: about a business card's third. */
+const STAMP = { width: 244, height: 74, margin: 24 };
+
+/** The stamp's text: who signed and when, and where to check it. */
+function stampLines(signer: SignerInfo, signedAt: Date): Array<{ text: string; bold?: boolean; size: number; muted?: boolean }> {
+  const offset = -signedAt.getTimezoneOffset();
+  const zone = `UTC${offset >= 0 ? '+' : '-'}${String(Math.floor(Math.abs(offset) / 60)).padStart(2, '0')}:${String(Math.abs(offset) % 60).padStart(2, '0')}`;
+  const when = new Intl.DateTimeFormat(getLang() === 'pt' ? 'pt-BR' : 'en-US', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(signedAt);
+  return [
+    { text: t('stamp.signedBy'), size: 7.5, muted: true },
+    { text: signer.name ?? '—', bold: true, size: 10.5 },
+    ...(signer.cpfMasked ? [{ text: t('stamp.cpf', { cpf: signer.cpfMasked }), size: 8 }] : []),
+    { text: t('stamp.date', { date: `${when} (${zone})` }), size: 8 },
+    { text: t('stamp.verify'), size: 7, muted: true },
+  ];
 }
 
 /**
- * Adds the /Sig, /Widget and /AcroForm structure pdf-lib doesn't have a
- * high-level API for (form-filling libraries rarely support signature
- * fields specifically), reserving fixed-width placeholders for /ByteRange
- * and /Contents so they can be patched in place afterward without shifting
- * any other byte offset in the file.
+ * The stamp's appearance: a form drawn upright as the page is seen (its
+ * /Matrix turns it against the page's /Rotate), in Helvetica, which every
+ * PDF reader has — nothing needs embedding.
  */
-async function addSignaturePlaceholder(pdfBytes: Uint8Array): Promise<Uint8Array> {
-  const pdfDoc = await PDFDocument.load(pdfBytes);
-  const { context, catalog } = pdfDoc;
-  const page = pdfDoc.getPage(0);
-
-  const sigDict = context.obj({
-    Type: 'Sig',
-    Filter: 'Adobe.PPKLite',
-    SubFilter: 'ETSI.CAdES.detached',
-    ByteRange: [0, BYTE_RANGE_PLACEHOLDER, BYTE_RANGE_PLACEHOLDER, BYTE_RANGE_PLACEHOLDER],
-    Contents: PDFHexString.of(CONTENTS_PLACEHOLDER_HEX),
-    M: PDFString.of(pdfDate(new Date())),
+function stampAppearance(context: PDFContext, lines: ReturnType<typeof stampLines>, rotation: number): PDFRef {
+  const regular = StandardFontEmbedder.for(FontNames.Helvetica);
+  const bold = StandardFontEmbedder.for(FontNames.HelveticaBold);
+  const regularRef = regular.embedIntoContext(context) as PDFRef;
+  const boldRef = bold.embedIntoContext(context) as PDFRef;
+  const { width: w, height: h } = STAMP;
+  const ops: string[] = [
+    'q',
+    '1 1 1 rg',
+    `0 0 ${w} ${h} re f`,
+    '0.114 0.62 0.459 RG 1.2 w',
+    `0.6 0.6 ${w - 1.2} ${h - 1.2} re S`,
+    '0.114 0.62 0.459 rg',
+    `0 0 5 ${h} re f`,
+  ];
+  // Spread over the height, top to bottom.
+  const step = (h - 12) / lines.length;
+  lines.forEach((line, i) => {
+    const font = line.bold ? bold : regular;
+    // Only what the font can show (Latin-1, as names here are).
+    const text = Array.from(line.text)
+      .map((ch) => (font.encoding.canEncodeUnicodeCodePoint(ch.codePointAt(0)!) ? ch : '?'))
+      .join('');
+    let size = line.size;
+    const room = w - 22;
+    const width = font.widthOfTextAtSize(text, size);
+    if (width > room) size = Math.max(5, (size * room) / width);
+    const y = h - 6 - step * (i + 0.5) - size * 0.35;
+    const color = line.muted ? '0.36 0.35 0.33' : '0.12 0.11 0.1';
+    ops.push(`BT /${line.bold ? 'F2' : 'F1'} ${size.toFixed(2)} Tf ${color} rg 14 ${y.toFixed(2)} Td ${font.encodeText(text).toString()} Tj ET`);
   });
-  const sigRef = context.register(sigDict);
-
-  const widgetDict = context.obj({
-    Type: 'Annot',
-    Subtype: 'Widget',
-    FT: 'Sig',
-    // A zero-size rect is the standard way to add a non-visual signature —
-    // present and valid, but nothing is drawn on the page for it.
-    Rect: [0, 0, 0, 0],
-    F: 4, // Print — several validators warn on signature widgets missing it.
-    V: sigRef,
-    T: PDFString.of('Assinatura1'),
-    P: page.ref,
+  ops.push('Q');
+  const matrix = rotation === 90 ? [0, 1, -1, 0, 0, 0] : rotation === 180 ? [-1, 0, 0, -1, 0, 0] : rotation === 270 ? [0, -1, 1, 0, 0, 0] : [1, 0, 0, 1, 0, 0];
+  const stream = context.flateStream(ops.join('\n'), {
+    Type: 'XObject',
+    Subtype: 'Form',
+    BBox: [0, 0, w, h],
+    Matrix: matrix,
+    Resources: { Font: { F1: regularRef, F2: boldRef } },
   });
-  const widgetRef = context.register(widgetDict);
-  page.node.addAnnot(widgetRef);
+  return context.register(stream);
+}
 
-  // Merges into an existing /AcroForm if the source PDF already had one
-  // (e.g. from other form fields) rather than clobbering it.
-  const acroForm = catalog.getOrCreateAcroForm();
-  acroForm.addField(widgetRef);
-  acroForm.dict.set(PDFName.of('SigFlags'), PDFNumber.of(3)); // SignaturesExist | AppendOnly
+/** The rects (in page space) of the signatures already shown on a page. */
+function signatureRects(context: PDFContext, annots: PDFArray | undefined): number[][] {
+  if (!annots) return [];
+  return annots.asArray().flatMap((item) => {
+    const annot = context.lookup(item);
+    if (!(annot instanceof PDFDict) || annot.lookup(PDFName.of('Subtype')) !== PDFName.of('Widget')) return [];
+    const rect = annot.lookup(PDFName.of('Rect'));
+    if (!(rect instanceof PDFArray)) return [];
+    const [x0, y0, x1, y1] = rect.asArray().map((n) => (n instanceof PDFNumber ? n.asNumber() : 0));
+    return Math.abs(x1 - x0) > 1 && Math.abs(y1 - y0) > 1 ? [[Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)]] : [];
+  });
+}
 
-  // Object streams would compress /ByteRange and /Contents away as binary,
-  // making them unfindable as the literal text the next step searches for.
-  return pdfDoc.save({ useObjectStreams: false });
+/**
+ * Adds the signature to `base` as an incremental update (see incremental.ts):
+ * the signature dictionary, with fixed-width placeholders for /ByteRange and
+ * /Contents to be patched in place once the signature is made; its field and
+ * widget — a stamp on the page, or nothing visible; the page and the form
+ * pointing at them. Everything else in the file stays exactly as it was, so
+ * the signatures it already has stay valid.
+ */
+async function addSignatureUpdate(base: Uint8Array, signer: SignerInfo, signedAt: Date, stamp: StampPlacement | null): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(base, { updateMetadata: false });
+  const { context, catalog } = doc;
+  const xref = lastXref(base);
+  // New objects get numbers the file has never used.
+  context.largestObjectNumber = Math.max(context.largestObjectNumber, xref.size - 1);
+  const firstNew = context.largestObjectNumber + 1;
+  if (certifiedWithoutChanges(context, catalog)) throw new SignPdfError(t('sign.certifiedNoChanges'));
+
+  const changed: PDFRef[] = [];
+  const rootRef = context.trailerInfo.Root as PDFRef;
+
+  // The form: its own object, inside the catalog, or none yet.
+  let acroForm: PDFDict;
+  const acroRaw = catalog.get(PDFName.of('AcroForm'));
+  if (acroRaw instanceof PDFRef) {
+    acroForm = context.lookup(acroRaw, PDFDict);
+    changed.push(acroRaw);
+  } else if (acroRaw instanceof PDFDict) {
+    acroForm = acroRaw;
+    changed.push(rootRef);
+  } else {
+    acroForm = context.obj({});
+    catalog.set(PDFName.of('AcroForm'), context.register(acroForm));
+    changed.push(rootRef);
+  }
+  let fields: PDFArray;
+  const fieldsRaw = acroForm.get(PDFName.of('Fields'));
+  if (fieldsRaw instanceof PDFRef) {
+    fields = context.lookup(fieldsRaw, PDFArray);
+    changed.push(fieldsRaw);
+  } else if (fieldsRaw instanceof PDFArray) {
+    fields = fieldsRaw;
+  } else {
+    fields = context.obj([]);
+    acroForm.set(PDFName.of('Fields'), fields);
+  }
+
+  const pageIndex = Math.max(0, Math.min(doc.getPageCount() - 1, stamp?.page ?? 0));
+  const page = doc.getPage(pageIndex);
+  const annotsRaw = page.node.get(PDFName.of('Annots'));
+  const annots = annotsRaw instanceof PDFRef ? context.lookup(annotsRaw, PDFArray) : annotsRaw instanceof PDFArray ? annotsRaw : undefined;
+
+  // A zero-size rect is the standard way to add a signature with nothing
+  // drawn for it; a stamp sits in the chosen corner, as the page is seen —
+  // moved along the edge if another signature's stamp is there already.
+  let rect = [0, 0, 0, 0];
+  let appearance: PDFRef | undefined;
+  if (stamp) {
+    const rotation = normalizeRotation(page.getRotation().angle);
+    const box = page.getCropBox();
+    const shown = displayedSize(rotation, box.width, box.height);
+    const { width: w, height: h, margin } = STAMP;
+    const taken = signatureRects(context, annots);
+    const right = stamp.corner.endsWith('right');
+    const bottom = stamp.corner.startsWith('bottom');
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const x = right ? shown.width - w - margin : margin;
+      const y = bottom ? margin + attempt * (h + 8) : shown.height - h - margin - attempt * (h + 8);
+      const raw = displayRectToRaw(rotation, box.width, box.height, { x, y, width: w, height: h });
+      rect = [box.x + raw.x, box.y + raw.y, box.x + raw.x + raw.width, box.y + raw.y + raw.height];
+      const overlaps = taken.some(([x0, y0, x1, y1]) => rect[0] < x1 && rect[2] > x0 && rect[1] < y1 && rect[3] > y0);
+      if (!overlaps) break;
+    }
+    appearance = stampAppearance(context, stampLines(signer, signedAt), rotation);
+  }
+
+  const sigRef = context.register(
+    context.obj({
+      Type: 'Sig',
+      Filter: 'Adobe.PPKLite',
+      SubFilter: 'ETSI.CAdES.detached',
+      ByteRange: [0, BYTE_RANGE_PLACEHOLDER, BYTE_RANGE_PLACEHOLDER, BYTE_RANGE_PLACEHOLDER],
+      Contents: PDFHexString.of(CONTENTS_PLACEHOLDER_HEX),
+      M: PDFString.of(pdfDate(signedAt)),
+    }),
+  );
+  const widgetRef = context.register(
+    context.obj({
+      Type: 'Annot',
+      Subtype: 'Widget',
+      FT: 'Sig',
+      Rect: rect,
+      F: 4, // Print — several validators warn on signature widgets missing it.
+      V: sigRef,
+      T: PDFString.of(freeFieldName(context, fields)),
+      P: page.ref,
+      ...(appearance ? { AP: { N: appearance } } : {}),
+    }),
+  );
+
+  // The page lists the widget among its annotations — written straight into
+  // /Annots: pdf-lib's own `addAnnot` would also rewrap the page's content
+  // streams, a change to the page an earlier signature would object to.
+  if (annotsRaw instanceof PDFRef) {
+    annots!.push(widgetRef);
+    changed.push(annotsRaw);
+  } else if (annots) {
+    annots.push(widgetRef);
+    changed.push(page.ref);
+  } else {
+    page.node.set(PDFName.of('Annots'), context.obj([widgetRef]));
+    changed.push(page.ref);
+  }
+  fields.push(widgetRef);
+  acroForm.set(PDFName.of('SigFlags'), PDFNumber.of(3)); // SignaturesExist | AppendOnly
+
+  for (const [ref] of context.enumerateIndirectObjects()) if (ref.objectNumber >= firstNew) changed.push(ref);
+  return appendUpdate(base, doc, changed, xref);
 }
 
 /** Rewrites the placeholder /ByteRange with the real byte spans (same total
  * width, so nothing shifts), and returns the exact bytes that get hashed
  * and signed — everything in the file except the /Contents value, its
  * `<` `>` delimiters included (the convention Acrobat and the PAdES
- * validators check the gap against). */
-function computeByteRangeAndSignedRegion(bytes: Uint8Array): { patched: Uint8Array; signedRegion: Uint8Array; contentsHexStart: number } {
+ * validators check the gap against). Only looked for after `from`, where
+ * the update starts: what came before is the original, untouched. */
+function computeByteRangeAndSignedRegion(bytes: Uint8Array, from: number): { patched: Uint8Array; signedRegion: Uint8Array; contentsHexStart: number } {
   const contentsPattern = `<${CONTENTS_PLACEHOLDER_HEX}`;
-  const ltIdx = findAsciiOffset(bytes, contentsPattern);
+  const ltIdx = findAsciiOffset(bytes, contentsPattern, from);
   if (ltIdx === -1) throw new SignPdfError(t('sign.placeholderNotFound'));
   const afterGt = ltIdx + contentsPattern.length + 1; // first byte after the closing '>'
   const contentsHexStart = ltIdx + 1;
 
   // The array's first element is always the literal `0` written by
-  // `addSignaturePlaceholder` (not a placeholder value) — only the other
-  // three were given the wide placeholder number.
+  // `addSignatureUpdate` (not a placeholder value) — only the other three
+  // were given the wide placeholder number.
   const byteRangePlaceholderText = `0 ${Array(3).fill(String(BYTE_RANGE_PLACEHOLDER)).join(' ')}`;
-  const brIdx = findAsciiOffset(bytes, byteRangePlaceholderText);
+  const brIdx = findAsciiOffset(bytes, byteRangePlaceholderText, from);
   if (brIdx === -1) throw new SignPdfError(t('sign.placeholderNotFound'));
 
   const byteRange = [0, ltIdx, afterGt, bytes.length - afterGt];
@@ -334,11 +531,12 @@ async function buildCmsSignature(
 
 /**
  * Signs `pdfBytes` with the given PKCS#12 (.pfx/.p12) certificate and
- * password, returning a new PDF with a PAdES-B signature embedded. Never
- * transmits the certificate or password anywhere — everything happens
- * in-memory, client-side.
+ * password, returning the PDF with a PAdES-B signature added — as an
+ * incremental update, so any signature it already has stays valid — and,
+ * with `stamp`, shown on the page. Never transmits the certificate or
+ * password anywhere — everything happens in-memory, client-side.
  */
-export async function signPdf(pdfBytes: Uint8Array, pfxBytes: Uint8Array, password: string): Promise<SignResult> {
+export async function signPdf(pdfBytes: Uint8Array, pfxBytes: Uint8Array, password: string, stamp: StampPlacement | null = null): Promise<SignResult> {
   const forge = await import('node-forge');
   const { privateKey, certificate, chain } = openPkcs12(forge, pfxBytes, password);
 
@@ -352,12 +550,37 @@ export async function signPdf(pdfBytes: Uint8Array, pfxBytes: Uint8Array, passwo
     throw new SignPdfError(t('sign.certNotYetValid', { date: formatCertDate(certificate.validity.notBefore) }));
   }
 
-  const withPlaceholder = await addSignaturePlaceholder(pdfBytes);
-  const { patched, signedRegion, contentsHexStart } = computeByteRangeAndSignedRegion(withPlaceholder);
+  const signer = describeSigner(certificate);
+  // One moment for the stamp, the /M entry and the done screen alike.
   const signedAt = new Date();
+  const withPlaceholder = await addSignatureUpdate(pdfBytes, signer, signedAt, stamp);
+  const { patched, signedRegion, contentsHexStart } = computeByteRangeAndSignedRegion(withPlaceholder, pdfBytes.length);
   const signatureHex = await buildCmsSignature(forge, signedRegion, privateKey, certificate, chain);
   if (signatureHex.length > CONTENTS_PLACEHOLDER_HEX.length) throw new SignPdfError(t('sign.signatureTooLarge'));
   const paddedHex = signatureHex.padEnd(CONTENTS_PLACEHOLDER_HEX.length, '0');
   patched.set(new TextEncoder().encode(paddedHex), contentsHexStart);
-  return { bytes: patched, signer: describeSigner(certificate), signedAt };
+  return { bytes: patched, signer, signedAt };
+}
+
+/** What the signing dialog tells the person beforehand: how many signatures
+ * a PDF already has, and whether it's encrypted (it then can't be signed as
+ * it is — see `untouchedPdfBytes`). */
+export async function pdfSignatureInfo(bytes: Uint8Array): Promise<{ signatures: number; encrypted: boolean }> {
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+  const { context } = doc;
+  const acroForm = doc.catalog.lookup(PDFName.of('AcroForm'));
+  const fields = acroForm instanceof PDFDict ? acroForm.lookup(PDFName.of('Fields')) : undefined;
+  let signatures = 0;
+  const walk = (array: PDFArray, inheritedType: unknown) => {
+    for (const item of array.asArray()) {
+      const field = context.lookup(item);
+      if (!(field instanceof PDFDict)) continue;
+      const type = field.lookup(PDFName.of('FT')) ?? inheritedType;
+      if (type === PDFName.of('Sig') && field.get(PDFName.of('V'))) signatures++;
+      const kids = field.lookup(PDFName.of('Kids'));
+      if (kids instanceof PDFArray) walk(kids, type);
+    }
+  };
+  if (fields instanceof PDFArray) walk(fields, undefined);
+  return { signatures, encrypted: doc.isEncrypted };
 }

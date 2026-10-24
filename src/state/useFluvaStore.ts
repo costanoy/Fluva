@@ -6,6 +6,7 @@ import {
   isImagePage,
   newId,
   NO_ADJUST,
+  untouchedPdfBytes,
   type DrawOverlay,
   type ImageAdjust,
   type ImageAsset,
@@ -26,6 +27,7 @@ import { TEXT_BASELINE_RATIO, isCoveredRect } from '../pdf/geometry';
 import { canvasToBlob, releaseAll } from '../pdf/render';
 import type { CompressLevel, SplitResult } from '../pdf/ops';
 import type { ExportFormat } from '../pdf/exporters';
+import type { StampPlacement } from '../pdf/sign';
 import { DEFAULT_FAMILY_KEY, cleanFontName, familyByKey, matchSubstitute } from '../pdf/fonts';
 import { extractPageText, sampleRunColors, type SampledColors } from '../pdf/textExtract';
 import { getLang, setLang as setGlobalLang, t, type Lang } from '../i18n/translations';
@@ -1530,17 +1532,20 @@ export function useFluvaStore() {
        * `SignDialog` instead of going through `state.busy`/`state.error`: a
        * wrong password is shown inline under the field (keeping the chosen
        * certificate), and success is a screen of its own inside the dialog. */
-      signAndDownload: async (pfxFile: File, password: string): Promise<SignOutcome> => {
+      signAndDownload: async (pfxFile: File, password: string, stamp: StampPlacement | null = null): Promise<SignOutcome> => {
         const st = stateRef.current;
         try {
-          const [{ buildPdf }, { baseNameFor, downloadBytes }, { signPdf }] = await Promise.all([
+          const [{ buildPdf }, { baseNameFor, downloadBytes }, { pdfSignatureInfo, signPdf }] = await Promise.all([
             import('../pdf/build'),
             import('../pdf/exporters'),
             import('../pdf/sign'),
           ]);
-          const pdfBytes = await buildPdf(st.doc);
+          // A PDF left as it was is signed as it is (its signatures stay
+          // valid); anything else is first written out with its edits.
+          const original = untouchedPdfBytes(st.doc);
+          const pdfBytes = original && !(await pdfSignatureInfo(original)).encrypted ? original : await buildPdf(st.doc);
           const pfxBytes = new Uint8Array(await pfxFile.arrayBuffer());
-          const result = await signPdf(pdfBytes, pfxBytes, password);
+          const result = await signPdf(pdfBytes, pfxBytes, password, stamp);
           const fileName = `${baseNameFor(st.doc)}${t('file.signed')}.pdf`;
           // Closing Android's save sheet still leaves the signed file one
           // tap away ("Baixar de novo" on the done screen).
@@ -1554,6 +1559,24 @@ export function useFluvaStore() {
           const wrongPassword = !!err && typeof err === 'object' && (err as { code?: string }).code === 'wrong-password';
           return { ok: false, wrongPassword, message: err instanceof Error ? err.message : t('store.genericError') };
         }
+      },
+
+      /** For the signing dialog, before anything is signed: how many signatures
+       * the document's PDFs already have, and whether they'll stay valid (the
+       * PDF is signed as it was opened — see `untouchedPdfBytes`). */
+      inspectSignatures: async (): Promise<{ count: number; kept: boolean }> => {
+        const st = stateRef.current;
+        const { pdfSignatureInfo } = await import('../pdf/sign');
+        const ids = [...new Set(st.doc.pages.map((p) => p.sourceId).filter((id): id is string => !!id))];
+        let count = 0;
+        for (const id of ids) {
+          const source = st.doc.sources[id];
+          if (source?.kind !== 'pdf') continue;
+          count += (await pdfSignatureInfo(source.bytes).catch(() => ({ signatures: 0 }))).signatures;
+        }
+        const original = untouchedPdfBytes(st.doc);
+        const kept = !!original && !(await pdfSignatureInfo(original).catch(() => ({ encrypted: true }))).encrypted;
+        return { count, kept };
       },
 
       /* ----------------------------------------------------------------- zoom */
