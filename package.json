@@ -21,7 +21,7 @@
     "docx": "^9.7.1",
     "fflate": "^0.8.3",
     "lucide-react": "^0.469.0",
-    "node-forge": "^1.4.0",
+    "node-forge": "^1.4.2",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",
     "qrcode": "^1.5.4",
