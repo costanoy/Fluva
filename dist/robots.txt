@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://fluva.cyberhat.com.br/sitemap.xml
